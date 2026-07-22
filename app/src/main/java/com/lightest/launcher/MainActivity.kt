@@ -93,8 +93,8 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.BLACK),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.BLACK)
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -104,8 +104,8 @@ class MainActivity : ComponentActivity() {
             window.isStatusBarContrastEnforced = false
         }
 
-        window.navigationBarColor = android.graphics.Color.TRANSPARENT
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.navigationBarColor = android.graphics.Color.BLACK
+        window.statusBarColor = android.graphics.Color.BLACK
 
         setContent {
             LauncherTheme {
@@ -201,6 +201,7 @@ fun PitchBlackLauncherScreen() {
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .navigationBarsPadding()
                 .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -284,12 +285,11 @@ fun PitchBlackLauncherScreen() {
             } else {
                 // rememberLazyGridState persists scroll position across recompositions
                 val gridState = rememberLazyGridState()
-                val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(4),
                     state = gridState,
-                    contentPadding = PaddingValues(bottom = 64.dp + navBarPadding),
+                    contentPadding = PaddingValues(bottom = 32.dp),
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
