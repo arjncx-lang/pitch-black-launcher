@@ -1,0 +1,80 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="1080dp"
+    android:height="1920dp"
+    android:viewportWidth="1080"
+    android:viewportHeight="1920">
+
+    <!-- Gradient Background Base -->
+    <path android:pathData="M0,0h1080v1920h-1080z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="1080"
+                android:endY="1920"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF0D0E1A" />
+                <item android:offset="0.5" android:color="#FF13122B" />
+                <item android:offset="1.0" android:color="#FF090714" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Top Right Aesthetic Glowing Orb -->
+    <path android:pathData="M500,-100 A600,600 0 1,1 1200,600 A600,600 0 1,1 500,-100 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="850"
+                android:centerY="250"
+                android:gradientRadius="600"
+                android:type="radial">
+                <item android:offset="0.0" android:color="#4D7C4DFF" />
+                <item android:offset="0.6" android:color="#20651FFF" />
+                <item android:offset="1.0" android:color="#00000000" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Bottom Left Cyan Glow Orb -->
+    <path android:pathData="M-300,1200 A700,700 0 1,1 600,2100 A700,700 0 1,1 -300,1200 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="150"
+                android:centerY="1650"
+                android:gradientRadius="700"
+                android:type="radial">
+                <item android:offset="0.0" android:color="#4D00E5FF" />
+                <item android:offset="0.7" android:color="#1A00B0FF" />
+                <item android:offset="1.0" android:color="#00000000" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Center Coral Accent Orb -->
+    <path android:pathData="M300,800 A450,450 0 1,1 1200,1700 A450,450 0 1,1 300,800 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="750"
+                android:centerY="1250"
+                android:gradientRadius="450"
+                android:type="radial">
+                <item android:offset="0.0" android:color="#3DFF4081" />
+                <item android:offset="0.8" android:color="#00FF4081" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Decorative Wavy Curved Line 1 -->
+    <path
+        android:pathData="M -100,300 C 300,500 700,100 1200,400"
+        android:strokeWidth="3"
+        android:strokeColor="#2E7C4DFF" />
+
+    <!-- Decorative Wavy Curved Line 2 -->
+    <path
+        android:pathData="M -100,1400 C 400,1100 800,1600 1200,1300"
+        android:strokeWidth="2"
+        android:strokeColor="#2E00E5FF" />
+
+</vector>
