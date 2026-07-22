@@ -196,31 +196,6 @@ fun AppDetailDialog(
                 ) {
                     Text("App Info", fontWeight = FontWeight.SemiBold)
                 }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedButton(
-                    onClick = {
-                        onDismiss()
-                        val intent = Intent(
-                            Intent.ACTION_DELETE,
-                            Uri.fromParts("package", appItem.packageName, null)
-                        ).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                        context.startActivity(intent)
-                    },
-                    shape = RoundedCornerShape(50),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.Red),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Color.Red
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                ) {
-                    Text("Uninstall App", fontWeight = FontWeight.SemiBold)
-                }
             }
         }
     }
