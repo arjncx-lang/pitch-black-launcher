@@ -348,6 +348,12 @@ fun PitchBlackLauncherScreen() {
                     launchApp(context, app)
                     isSearchVisible = false
                     searchQuery = ""
+                },
+                onEditLayout = {
+                    isEditMode = true
+                    selectedAppToSwap = app
+                    isSearchVisible = false
+                    searchQuery = ""
                 }
             )
         }
@@ -452,15 +458,17 @@ fun CenteredMinimalHeader(
                 )
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            if (isEditMode) {
+                Spacer(modifier = Modifier.width(16.dp))
 
-            TextButton(onClick = onToggleEditMode) {
-                Text(
-                    text = if (isEditMode) "Done" else "Edit Layout",
-                    color = if (isEditMode) Color(0xFF34C759) else Color.Gray,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                TextButton(onClick = onToggleEditMode) {
+                    Text(
+                        text = "Done",
+                        color = Color(0xFF34C759),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }

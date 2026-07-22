@@ -44,7 +44,8 @@ import com.lightest.launcher.model.AppItem
 fun AppDetailDialog(
     appItem: AppItem,
     onDismiss: () -> Unit,
-    onOpenApp: () -> Unit
+    onOpenApp: () -> Unit,
+    onEditLayout: () -> Unit
 ) {
     val context = LocalContext.current
     // Use the pre-decoded bitmap from the model — no main-thread work.
@@ -195,6 +196,25 @@ fun AppDetailDialog(
                         .height(48.dp)
                 ) {
                     Text("App Info", fontWeight = FontWeight.SemiBold)
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        onDismiss()
+                        onEditLayout()
+                    },
+                    shape = RoundedCornerShape(50),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF34C759)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Color(0xFF34C759)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Text("Edit Layout", fontWeight = FontWeight.SemiBold)
                 }
             }
         }
