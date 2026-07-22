@@ -115,14 +115,19 @@ object LauncherRepository {
                     else -> null
                 }
 
+                val densityDpi = context.resources.displayMetrics.densityDpi
                 var isAdaptive = false
                 val drawable = if (customIconResId != null) {
                     ContextCompat.getDrawable(context, customIconResId)!!
                 } else {
                     val base = try {
-                        pm.getActivityIcon(activityInfo.componentName)
-                    } catch (_: PackageManager.NameNotFoundException) {
-                        activityInfo.getIcon(0)
+                        activityInfo.getIcon(densityDpi)
+                    } catch (_: Exception) {
+                        try {
+                            pm.getActivityIcon(activityInfo.componentName)
+                        } catch (_: Exception) {
+                            pm.defaultActivityIcon
+                        }
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                         base is android.graphics.drawable.AdaptiveIconDrawable) {
