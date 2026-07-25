@@ -1,12 +1,22 @@
 # Lightest Launcher
 
+![Screenshot](screenshot.png)
+
 A minimalist, ultra lightweight Android launcher designed for absolute zero battery drain and maximum efficiency. 
 
-## Why Lightest?
+## Why is it the Lightest?
 
 Modern launchers are filled with background services, heavy animations, and constant polling that quietly consume battery life. We built Lightest Launcher to fix that. 
 
-Every single feature in this launcher has been meticulously crafted to ensure **zero background battery consumption**. 
+Every single feature in this launcher has been meticulously crafted to ensure **zero background battery consumption**. We rely entirely on native, passive Android system broadcasts rather than active polling. 
+
+## Intentional Trade-offs
+
+To achieve absolute maximum performance and zero battery drain, we made some hard choices. These are not missing features; they are intentional exclusions:
+
+*   **No Widgets**: Widgets require continuous background processes and memory allocation to stay updated.
+*   **No Wallpapers**: Rendering high resolution images on the home screen drains battery and causes OLED burn-in. We use a pure black background.
+*   **No App Drawer Animations**: We launch apps instantly.
 
 ## Features
 
