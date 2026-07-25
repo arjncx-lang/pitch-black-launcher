@@ -44,7 +44,6 @@ import com.lightest.launcher.model.AppItem
 fun AppDetailDialog(
     appItem: AppItem,
     onDismiss: () -> Unit,
-    onOpenApp: () -> Unit,
     onEditLayout: () -> Unit
 ) {
     val context = LocalContext.current
@@ -155,26 +154,6 @@ fun AppDetailDialog(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Action Buttons
-                Button(
-                    onClick = {
-                        onDismiss()
-                        onOpenApp()
-                    },
-                    shape = RoundedCornerShape(50),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White,
-                        contentColor = Color.Black
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                ) {
-                    Text("Open App", fontWeight = FontWeight.Bold)
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
                 OutlinedButton(
                     onClick = {
                         onDismiss()

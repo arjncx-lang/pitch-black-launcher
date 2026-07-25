@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import android.media.AudioManager
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -81,6 +82,7 @@ import com.lightest.launcher.model.AppItem
 import com.lightest.launcher.ui.AppDetailDialog
 import com.lightest.launcher.ui.rememberBatteryState
 import com.lightest.launcher.ui.rememberTimeAndDate
+import com.lightest.launcher.ui.rememberVolumeState
 import com.lightest.launcher.ui.theme.LauncherTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -191,6 +193,7 @@ fun PitchBlackLauncherScreen() {
 
     val timeData by rememberTimeAndDate()
     val batteryData by rememberBatteryState()
+    val volumeData by rememberVolumeState()
 
     Box(
         modifier = Modifier
@@ -213,6 +216,11 @@ fun PitchBlackLauncherScreen() {
                 dateText = timeData.dateText,
                 weekday = timeData.weekday,
                 batteryPct = batteryData.percentage,
+                isCharging = batteryData.isCharging,
+                temperatureCelsius = batteryData.temperatureCelsius,
+                mediaVolumePct = volumeData.mediaVolumePercentage,
+                ringVolumePct = volumeData.ringVolumePercentage,
+                ringerMode = volumeData.ringerMode,
                 isSearchOpen = isSearchVisible,
                 onToggleSearch = { isSearchVisible = !isSearchVisible },
                 isEditMode = isEditMode,
@@ -344,11 +352,6 @@ fun PitchBlackLauncherScreen() {
             AppDetailDialog(
                 appItem = app,
                 onDismiss = { selectedAppForDialog = null },
-                onOpenApp = {
-                    launchApp(context, app)
-                    isSearchVisible = false
-                    searchQuery = ""
-                },
                 onEditLayout = {
                     isEditMode = true
                     selectedAppToSwap = app
@@ -367,6 +370,11 @@ fun CenteredMinimalHeader(
     dateText: String,
     weekday: String,
     batteryPct: Int,
+    isCharging: Boolean,
+    temperatureCelsius: Float,
+    mediaVolumePct: Int,
+    ringVolumePct: Int,
+    ringerMode: Int,
     isSearchOpen: Boolean,
     onToggleSearch: () -> Unit,
     isEditMode: Boolean,
@@ -405,12 +413,27 @@ fun CenteredMinimalHeader(
             modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
         )
 
-        // Dynamic battery bar
+        // Dynamic single-line status row (Temp, Battery, Volume)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(bottom = 8.dp)
+            modifier = Modifier.padding(bottom = 12.dp)
         ) {
+            // Temperature
+            val tempColor = when {
+                temperatureCelsius >= 40f -> Color(0xFFFF3B30) // Red (Hot)
+                temperatureCelsius >= 35f -> Color(0xFFFF9500) // Orange (Warm)
+                else -> Color(0xFF34C759) // Green (Low/Normal)
+            }
+            Text(
+                text = "TMP: ${"%.1f".format(temperatureCelsius)}°C",
+                color = tempColor,
+                fontSize = 10.sp,
+                fontWeight = if (temperatureCelsius >= 40f) FontWeight.Bold else FontWeight.Normal,
+                modifier = Modifier.padding(end = 12.dp)
+            )
+
+            // Battery Bar
             val batteryColor = when {
                 batteryPct <= 20 -> Color(0xFFFF3B30) // Red
                 batteryPct <= 50 -> Color(0xFFFF9500) // Orange
@@ -419,25 +442,54 @@ fun CenteredMinimalHeader(
 
             Box(
                 modifier = Modifier
-                    .width(150.dp)
-                    .height(4.dp)
-                    .background(Color(0xFF333333))
+                    .width(80.dp)
+                    .height(8.dp)
+                    .background(Color(0xFF333333), RoundedCornerShape(2.dp)),
+                contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(fraction = (batteryPct / 100f).coerceIn(0.02f, 1f))
-                        .background(batteryColor)
+                        .background(if (isCharging) Color(0xFF34C759) else batteryColor, RoundedCornerShape(2.dp))
+                        .align(Alignment.CenterStart)
                 )
+                
+                if (isCharging) {
+                    androidx.compose.foundation.Canvas(modifier = Modifier.size(6.dp)) {
+                        val path = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(size.width * 0.6f, 0f)
+                            lineTo(0f, size.height * 0.55f)
+                            lineTo(size.width * 0.45f, size.height * 0.55f)
+                            lineTo(size.width * 0.2f, size.height)
+                            lineTo(size.width, size.height * 0.45f)
+                            lineTo(size.width * 0.55f, size.height * 0.45f)
+                            close()
+                        }
+                        drawPath(path, Color.Black) // Black bolt so it cuts out of the green bar
+                    }
+                }
             }
-
-            Spacer(modifier = Modifier.width(14.dp))
 
             Text(
                 text = "$batteryPct%",
                 color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 8.dp, end = 12.dp)
+            )
+
+            // Volume Stats
+            val ringerText = when (ringerMode) {
+                AudioManager.RINGER_MODE_SILENT -> "SLT"
+                AudioManager.RINGER_MODE_VIBRATE -> "VIB"
+                else -> "$ringVolumePct%"
+            }
+            Text(
+                text = "RNG: $ringerText  MED: $mediaVolumePct%",
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Normal
             )
         }
 

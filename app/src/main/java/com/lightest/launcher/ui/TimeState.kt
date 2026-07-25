@@ -1,12 +1,16 @@
 package com.lightest.launcher.ui
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import kotlinx.coroutines.delay
+import androidx.compose.ui.platform.LocalContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -27,33 +31,28 @@ private val weekdayFormat = SimpleDateFormat("EEEE", Locale.getDefault())
 
 @Composable
 fun rememberTimeAndDate(): State<TimeData> {
+    val context = LocalContext.current
     val timeState = remember { mutableStateOf(getTimeData()) }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            val cal = Calendar.getInstance()
-            val now = cal.time
-
-            val newTime12 = timeFormat.format(now)
-            val newAmPm = amPmFormat.format(now)
-
-            // Only recompute date string when minute rolls over (saves allocations every second)
-            val currentData = timeState.value
-            if (newTime12 != currentData.time12 || newAmPm != currentData.amPm) {
-                // Check if date also changed (rare, but correct)
-                val newDate = dateFormat.format(now)
-                val newWeekday = weekdayFormat.format(now)
-                timeState.value = TimeData(
-                    time12 = newTime12,
-                    amPm = newAmPm,
-                    dateText = if (newDate != currentData.dateText) newDate else currentData.dateText,
-                    weekday = if (newWeekday != currentData.weekday) newWeekday else currentData.weekday
-                )
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                timeState.value = getTimeData()
             }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_TIME_TICK)
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        }
+        context.registerReceiver(receiver, filter)
 
-            // Sleep until the next whole second boundary to minimise wakeups
-            val msUntilNextSecond = 1000L - (System.currentTimeMillis() % 1000L)
-            delay(msUntilNextSecond)
+        onDispose {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (e: Exception) {
+                // Ignore if unregistering fails
+            }
         }
     }
 

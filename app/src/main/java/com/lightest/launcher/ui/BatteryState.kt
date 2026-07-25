@@ -16,7 +16,8 @@ import androidx.compose.ui.platform.LocalContext
 @Immutable
 data class BatteryData(
     val percentage: Int = 100,
-    val isCharging: Boolean = false
+    val isCharging: Boolean = false,
+    val temperatureCelsius: Float = 0f
 )
 
 @Composable
@@ -38,9 +39,13 @@ fun rememberBatteryState(): State<BatteryData> {
                     (level * 100) / scale
                 } else 100
 
+                val tempRaw = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0)
+                val tempCelsius = tempRaw / 10.0f
+
                 batteryState.value = BatteryData(
                     percentage = pct,
-                    isCharging = isCharging
+                    isCharging = isCharging,
+                    temperatureCelsius = tempCelsius
                 )
             }
         }
@@ -58,7 +63,14 @@ fun rememberBatteryState(): State<BatteryData> {
                 (level * 100) / scale
             } else 100
 
-            batteryState.value = BatteryData(percentage = pct, isCharging = isCharging)
+            val tempRaw = stickyIntent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0)
+            val tempCelsius = tempRaw / 10.0f
+
+            batteryState.value = BatteryData(
+                percentage = pct, 
+                isCharging = isCharging,
+                temperatureCelsius = tempCelsius
+            )
         }
 
         onDispose {
