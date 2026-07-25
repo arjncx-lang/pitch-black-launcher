@@ -1,6 +1,10 @@
 # ⚡ Lightest Launcher
 
-![Screenshot](screenshot.png)
+<p align="center">
+  <img src="screenshot.png" width="30%" />
+  <img src="dialog_screenshot.png" width="30%" />
+  <img src="search_screenshot.png" width="30%" />
+</p>
 
 A radically minimalist, ultra lightweight Android launcher engineered from the ground up to achieve **absolute zero battery drain**.
 
