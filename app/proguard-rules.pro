@@ -1,33 +1,26 @@
-# Launcher-specific ProGuard rules
-# Keep all launcher-related classes intact
--keep class com.lightest.launcher.** { *; }
+# Lightest Launcher — minimal keep rules so R8 can shrink aggressively.
+# Do NOT blanket-keep the whole package; Compose models are not reflected.
 
-# Keep Android framework classes used by reflection
--keep class android.content.pm.** { *; }
+# Framework types touched via system services (safe no-ops if unused after shrink)
 -keep class android.os.UserHandle { *; }
 
-# Keep Compose runtime internals (needed for stability annotations)
--keep @androidx.compose.runtime.Immutable class * { *; }
--keep @androidx.compose.runtime.Stable class * { *; }
-
-# Kotlin coroutines
--keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
--keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
--dontwarn kotlinx.coroutines.**
-
-# Kotlin metadata (required for reflection used by Compose compiler)
--keepattributes RuntimeVisibleAnnotations
--keepattributes AnnotationDefault
-
-# Remove all logging in release
+# Strip logging / stack traces in release (zero runtime cost, smaller dex)
 -assumenosideeffects class android.util.Log {
     public static int v(...);
     public static int d(...);
     public static int i(...);
     public static int w(...);
+    public static int e(...);
 }
-
-# Remove printStackTrace() calls in release (saves stack trace allocation overhead)
 -assumenosideeffects class java.lang.Throwable {
     public void printStackTrace();
 }
+
+# Kotlin coroutines (library consumer rules usually cover this; keep names for dispatchers)
+-keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
+-keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
+-dontwarn kotlinx.coroutines.**
+
+# Annotations retained for Compose stability where needed
+-keepattributes RuntimeVisibleAnnotations
+-keepattributes AnnotationDefault

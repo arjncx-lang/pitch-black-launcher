@@ -5,7 +5,6 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,20 +15,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -38,17 +41,29 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.lightest.launcher.data.LauncherRepository
 import com.lightest.launcher.model.AppItem
+import com.lightest.launcher.model.IconEntry
+import com.lightest.launcher.model.PackageDetails
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun AppDetailDialog(
     appItem: AppItem,
+    iconEntry: IconEntry?,
     onDismiss: () -> Unit,
     onEditLayout: () -> Unit
 ) {
     val context = LocalContext.current
-    // Use the pre-decoded bitmap from the model — no main-thread work.
-    val bitmap = appItem.iconBitmap
+    // Version/size loaded only when dialog opens — never on home-grid cold start.
+    var details by remember(appItem.packageName) { mutableStateOf<PackageDetails?>(null) }
+
+    LaunchedEffect(appItem.packageName) {
+        details = withContext(Dispatchers.IO) {
+            LauncherRepository.getPackageDetails(context, appItem.packageName)
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -63,29 +78,29 @@ fun AppDetailDialog(
                     .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // App Icon Header
                 Box(
                     modifier = Modifier
                         .size(72.dp)
-                        .background(Color.Black, shape = CircleShape)
+                        .background(Color(0xFF1A1A1A), shape = CircleShape)
                         .clip(CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (bitmap != null) {
+                    if (iconEntry != null) {
                         Image(
-                            bitmap = bitmap,
+                            bitmap = iconEntry.bitmap,
                             contentDescription = appItem.label,
                             contentScale = ContentScale.FillBounds,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .then(if (appItem.isAdaptiveIcon) Modifier.scale(1.5f) else Modifier)
+                                .then(
+                                    if (iconEntry.isAdaptive) Modifier.scale(1.5f) else Modifier
+                                )
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // App Name
                 Text(
                     text = appItem.label,
                     style = MaterialTheme.typography.titleLarge.copy(
@@ -99,7 +114,6 @@ fun AppDetailDialog(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Package Name
                 Text(
                     text = appItem.packageName,
                     style = MaterialTheme.typography.bodySmall.copy(
@@ -113,13 +127,14 @@ fun AppDetailDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Version & Size Metadata Pills
                 Row(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Version Pill
+                    val versionText = details?.versionName ?: "…"
+                    val sizeText = details?.formattedSize ?: "…"
+
                     Surface(
                         shape = RoundedCornerShape(50),
                         color = Color.Black,
@@ -127,7 +142,7 @@ fun AppDetailDialog(
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
                         Text(
-                            text = "Version: ${appItem.versionName}",
+                            text = "Version: $versionText",
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
@@ -135,14 +150,13 @@ fun AppDetailDialog(
                         )
                     }
 
-                    // Size Pill
                     Surface(
                         shape = RoundedCornerShape(50),
                         color = Color.Black,
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color.White)
                     ) {
                         Text(
-                            text = "Size: ${appItem.formattedSize}",
+                            text = "Size: $sizeText",
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
@@ -153,7 +167,6 @@ fun AppDetailDialog(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Action Buttons
                 OutlinedButton(
                     onClick = {
                         onDismiss()

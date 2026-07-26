@@ -5,14 +5,14 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import android.media.AudioManager
-import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -26,27 +26,22 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.core.view.WindowCompat
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -58,12 +53,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,21 +73,25 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import com.lightest.launcher.data.IconCache
 import com.lightest.launcher.data.LauncherRepository
 import com.lightest.launcher.model.AppItem
+import com.lightest.launcher.model.IconEntry
 import com.lightest.launcher.ui.AppDetailDialog
 import com.lightest.launcher.ui.rememberBatteryState
 import com.lightest.launcher.ui.rememberTimeAndDate
 import com.lightest.launcher.ui.rememberVolumeState
 import com.lightest.launcher.ui.theme.LauncherTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         enableEdgeToEdge(
@@ -106,7 +106,9 @@ class MainActivity : ComponentActivity() {
             window.isStatusBarContrastEnforced = false
         }
 
+        @Suppress("DEPRECATION")
         window.navigationBarColor = android.graphics.Color.BLACK
+        @Suppress("DEPRECATION")
         window.statusBarColor = android.graphics.Color.BLACK
 
         setContent {
@@ -120,48 +122,67 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun PitchBlackLauncherScreen() {
     val context = LocalContext.current
-    // Use a scope tied to this composable's lifecycle so coroutines are cancelled on dispose
     val scope = rememberCoroutineScope()
 
     var installedApps by remember { mutableStateOf<List<AppItem>>(emptyList()) }
+    // Icons live in a SnapshotStateMap so only the card for that key recomposes.
+    val iconMap: SnapshotStateMap<String, IconEntry> = remember { mutableStateMapOf() }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchVisible by remember { mutableStateOf(false) }
     var selectedAppForDialog by remember { mutableStateOf<AppItem?>(null) }
     var isLoading by remember { mutableStateOf(true) }
-
-    // Edit Mode State
     var isEditMode by remember { mutableStateOf(false) }
     var selectedAppToSwap by remember { mutableStateOf<AppItem?>(null) }
 
-    // Initial app load on IO thread
-    LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            val apps = LauncherRepository.getInstalledApps(context)
-            withContext(Dispatchers.Main) {
-                installedApps = apps
-                isLoading = false
+    // Not Compose state — Job changes must not trigger recomposition.
+    val iconLoadJob = remember { arrayOfNulls<Job>(1) }
+
+    fun startIconLoad(apps: List<AppItem>) {
+        iconLoadJob[0]?.cancel()
+        iconLoadJob[0] = scope.launch {
+            LauncherRepository.loadIcons(context, apps) { key, entry ->
+                iconMap[key] = entry
             }
         }
     }
 
-    // Package install/remove listener — uses rememberCoroutineScope so it is bound to
-    // this composable's lifetime and is NOT leaked like a raw CoroutineScope().
+    fun reloadAll() {
+        scope.launch {
+            val apps = withContext(Dispatchers.IO) {
+                LauncherRepository.getInstalledApps(context)
+            }
+            installedApps = apps
+            isLoading = false
+            // Drop icons for apps that no longer exist
+            val valid = apps.mapTo(HashSet(apps.size)) { it.stableKey }
+            val stale = iconMap.keys.filter { it !in valid }
+            stale.forEach { iconMap.remove(it) }
+            startIconLoad(apps)
+        }
+    }
+
+    // Phase 1: paint labels ASAP; Phase 2: stream icons in.
+    LaunchedEffect(Unit) {
+        val apps = withContext(Dispatchers.IO) {
+            LauncherRepository.getInstalledApps(context)
+        }
+        installedApps = apps
+        isLoading = false
+        startIconLoad(apps)
+    }
+
     DisposableEffect(Unit) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent?) {
                 val pkg = intent?.data?.schemeSpecificPart ?: return
                 when (intent.action) {
                     Intent.ACTION_PACKAGE_REMOVED -> {
-                        // Incremental: filter in-place on Main thread — zero IO, zero reload
+                        if (intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return
                         installedApps = installedApps.filter { it.packageName != pkg }
+                        IconCache.removeMemoryByPackage(pkg)
+                        iconMap.keys.filter { it.startsWith("$pkg|") }.forEach { iconMap.remove(it) }
                     }
-                    else -> {
-                        // For installs/updates, reload full list on IO thread
-                        scope.launch(Dispatchers.IO) {
-                            val apps = LauncherRepository.getInstalledApps(ctx)
-                            withContext(Dispatchers.Main) { installedApps = apps }
-                        }
-                    }
+                    else -> reloadAll()
                 }
             }
         }
@@ -171,24 +192,20 @@ fun PitchBlackLauncherScreen() {
             addAction(Intent.ACTION_PACKAGE_CHANGED)
             addDataScheme("package")
         }
-        context.registerReceiver(receiver, filter)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            context.registerReceiver(receiver, filter)
+        }
         onDispose {
+            iconLoadJob[0]?.cancel()
             context.unregisterReceiver(receiver)
         }
     }
 
-    // queryLower is computed once per searchQuery change — NOT on every recomposition.
-    // Previously this was outside remember, causing a new String allocation every clock tick.
     val filteredApps = remember(searchQuery, installedApps) {
-        val queryLower = searchQuery.lowercase()
-        if (queryLower.isBlank()) {
-            installedApps
-        } else {
-            installedApps.filter {
-                it.labelLower.contains(queryLower) ||
-                        it.packageName.contains(queryLower)
-            }
-        }
+        LauncherRepository.filterApps(installedApps, searchQuery)
     }
 
     val timeData by rememberTimeAndDate()
@@ -233,10 +250,11 @@ fun PitchBlackLauncherScreen() {
 
             AnimatedVisibility(visible = isEditMode) {
                 Text(
-                    text = if (selectedAppToSwap == null)
+                    text = if (selectedAppToSwap == null) {
                         "Tap an app to select, then tap another to swap!"
-                    else
-                        "Tap another app to swap with ${selectedAppToSwap!!.label}!",
+                    } else {
+                        "Tap another app to swap with ${selectedAppToSwap!!.label}!"
+                    },
                     color = Color(0xFF34C759),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
@@ -244,7 +262,6 @@ fun PitchBlackLauncherScreen() {
                 )
             }
 
-            // Collapsible Search Bar
             AnimatedVisibility(
                 visible = isSearchVisible || searchQuery.isNotEmpty(),
                 enter = fadeIn() + expandVertically(),
@@ -291,7 +308,6 @@ fun PitchBlackLauncherScreen() {
                     )
                 }
             } else {
-                // rememberLazyGridState persists scroll position across recompositions
                 val gridState = rememberLazyGridState()
 
                 LazyVerticalGrid(
@@ -302,15 +318,16 @@ fun PitchBlackLauncherScreen() {
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // key= lets Compose efficiently diff the list on app install/uninstall.
-                    // contentType= enables Compose to reuse composition slots across items.
                     items(
                         items = filteredApps,
-                        key = { app -> app.stableKey },   // pre-computed, zero allocation
+                        key = { app -> app.stableKey },
                         contentType = { "app_card" }
                     ) { app ->
+                        // Read map here so only this item recomposes when its icon arrives.
+                        val iconEntry = iconMap[app.stableKey]
                         AppCard(
                             app = app,
+                            iconEntry = iconEntry,
                             isHighlighted = selectedAppToSwap == app,
                             onAppClick = { appItem ->
                                 if (isEditMode) {
@@ -342,15 +359,17 @@ fun PitchBlackLauncherScreen() {
                             }
                         )
                     }
-                    item { Spacer(modifier = Modifier.height(32.dp)) }
+                    item(key = "bottom_spacer", contentType = "spacer") {
+                        Spacer(modifier = Modifier.height(32.dp))
+                    }
                 }
             }
         }
 
-        // App Detail Dialog (Long Press)
         selectedAppForDialog?.let { app ->
             AppDetailDialog(
                 appItem = app,
+                iconEntry = iconMap[app.stableKey],
                 onDismiss = { selectedAppForDialog = null },
                 onEditLayout = {
                     isEditMode = true
@@ -413,17 +432,15 @@ fun CenteredMinimalHeader(
             modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
         )
 
-        // Dynamic single-line status row (Temp, Battery, Volume)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
             modifier = Modifier.padding(bottom = 12.dp)
         ) {
-            // Temperature
             val tempColor = when {
-                temperatureCelsius >= 40f -> Color(0xFFFF3B30) // Red (Hot)
-                temperatureCelsius >= 35f -> Color(0xFFFF9500) // Orange (Warm)
-                else -> Color(0xFF34C759) // Green (Low/Normal)
+                temperatureCelsius >= 40f -> Color(0xFFFF3B30)
+                temperatureCelsius >= 35f -> Color(0xFFFF9500)
+                else -> Color(0xFF34C759)
             }
             Text(
                 text = "TMP: ${"%.1f".format(temperatureCelsius)}°C",
@@ -433,11 +450,10 @@ fun CenteredMinimalHeader(
                 modifier = Modifier.padding(end = 12.dp)
             )
 
-            // Battery Bar
             val batteryColor = when {
-                batteryPct <= 20 -> Color(0xFFFF3B30) // Red
-                batteryPct <= 50 -> Color(0xFFFF9500) // Orange
-                else             -> Color(0xFF34C759) // Green
+                batteryPct <= 20 -> Color(0xFFFF3B30)
+                batteryPct <= 50 -> Color(0xFFFF9500)
+                else -> Color(0xFF34C759)
             }
 
             Box(
@@ -451,10 +467,13 @@ fun CenteredMinimalHeader(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(fraction = (batteryPct / 100f).coerceIn(0.02f, 1f))
-                        .background(if (isCharging) Color(0xFF34C759) else batteryColor, RoundedCornerShape(2.dp))
+                        .background(
+                            if (isCharging) Color(0xFF34C759) else batteryColor,
+                            RoundedCornerShape(2.dp)
+                        )
                         .align(Alignment.CenterStart)
                 )
-                
+
                 if (isCharging) {
                     androidx.compose.foundation.Canvas(modifier = Modifier.size(6.dp)) {
                         val path = androidx.compose.ui.graphics.Path().apply {
@@ -466,7 +485,7 @@ fun CenteredMinimalHeader(
                             lineTo(size.width * 0.55f, size.height * 0.45f)
                             close()
                         }
-                        drawPath(path, Color.Black) // Black bolt so it cuts out of the green bar
+                        drawPath(path, Color.Black)
                     }
                 }
             }
@@ -479,7 +498,6 @@ fun CenteredMinimalHeader(
                 modifier = Modifier.padding(start = 8.dp, end = 12.dp)
             )
 
-            // Volume Stats
             val ringerText = when (ringerMode) {
                 AudioManager.RINGER_MODE_SILENT -> "SLT"
                 AudioManager.RINGER_MODE_VIBRATE -> "VIB"
@@ -512,7 +530,6 @@ fun CenteredMinimalHeader(
 
             if (isEditMode) {
                 Spacer(modifier = Modifier.width(16.dp))
-
                 TextButton(onClick = onToggleEditMode) {
                     Text(
                         text = "Done",
@@ -530,6 +547,7 @@ fun CenteredMinimalHeader(
 @Composable
 fun AppCard(
     app: AppItem,
+    iconEntry: IconEntry?,
     isHighlighted: Boolean = false,
     modifier: Modifier = Modifier,
     onAppClick: (AppItem) -> Unit,
@@ -549,7 +567,7 @@ fun AppCard(
             modifier = Modifier
                 .size(48.dp)
                 .background(
-                    if (isHighlighted) Color(0xFF34C759) else Color.Black,
+                    if (isHighlighted) Color(0xFF34C759) else Color(0xFF1A1A1A),
                     shape = CircleShape
                 )
                 .border(
@@ -557,20 +575,26 @@ fun AppCard(
                     color = if (isHighlighted) Color.White else Color.Transparent,
                     shape = CircleShape
                 )
-                .clip(CircleShape)
+                .clip(CircleShape),
+            contentAlignment = Alignment.Center
         ) {
-            Image(
-                bitmap = app.iconBitmap,
-                contentDescription = app.label,
-                contentScale = ContentScale.FillBounds,
-                modifier = Modifier
-                    .fillMaxSize()
-                    // graphicsLayer scales on the GPU — no layout/measure pass, zero CPU cost
-                    .then(
-                        if (app.isAdaptiveIcon) Modifier.graphicsLayer(scaleX = 1.5f, scaleY = 1.5f)
-                        else Modifier
-                    )
-            )
+            if (iconEntry != null) {
+                Image(
+                    bitmap = iconEntry.bitmap,
+                    contentDescription = app.label,
+                    contentScale = ContentScale.FillBounds,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (iconEntry.isAdaptive) {
+                                Modifier.graphicsLayer(scaleX = 1.5f, scaleY = 1.5f)
+                            } else {
+                                Modifier
+                            }
+                        )
+                )
+            }
+            // Empty dark circle placeholder while icon streams in — no spinner work.
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -603,7 +627,7 @@ private fun launchApp(context: Context, app: AppItem) {
     try {
         if (app.userHandle != null) {
             val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE)
-                    as android.content.pm.LauncherApps
+                as android.content.pm.LauncherApps
             val component = ComponentName(app.packageName, app.className)
             launcherApps.startMainActivity(component, app.userHandle, null, null)
         } else {
