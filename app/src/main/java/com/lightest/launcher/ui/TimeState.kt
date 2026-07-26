@@ -23,12 +23,6 @@ data class TimeData(
     val weekday: String = ""
 )
 
-// Formatters are created once and reused — no per-second allocation.
-private val timeFormat = SimpleDateFormat("hh:mm", Locale.getDefault())
-private val amPmFormat = SimpleDateFormat("a", Locale.getDefault())
-private val dateFormat = SimpleDateFormat("MMMM d, yyyy", Locale.getDefault())
-private val weekdayFormat = SimpleDateFormat("EEEE", Locale.getDefault())
-
 @Composable
 fun rememberTimeAndDate(): State<TimeData> {
     val context = LocalContext.current
@@ -50,21 +44,21 @@ fun rememberTimeAndDate(): State<TimeData> {
         onDispose {
             try {
                 context.unregisterReceiver(receiver)
-            } catch (e: Exception) {
-                // Ignore if unregistering fails
-            }
+            } catch (_: Exception) { }
         }
     }
 
     return timeState
 }
 
+/** Allocates formatters per call — safe from any thread, called at most once/minute. */
 private fun getTimeData(): TimeData {
+    val locale = Locale.getDefault()
     val now = Calendar.getInstance().time
     return TimeData(
-        time12 = timeFormat.format(now),
-        amPm = amPmFormat.format(now),
-        dateText = dateFormat.format(now),
-        weekday = weekdayFormat.format(now)
+        time12 = SimpleDateFormat("hh:mm", locale).format(now),
+        amPm = SimpleDateFormat("a", locale).format(now),
+        dateText = SimpleDateFormat("MMMM d, yyyy", locale).format(now),
+        weekday = SimpleDateFormat("EEEE", locale).format(now)
     )
 }

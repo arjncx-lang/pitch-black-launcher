@@ -11,43 +11,43 @@ import androidx.compose.ui.graphics.asImageBitmap
 import com.lightest.launcher.model.IconEntry
 import java.io.File
 import java.io.FileOutputStream
-import java.security.MessageDigest
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
 
 /**
  * Two-tier icon cache:
- *  1. Memory [LruCache] — process lifetime, keyed by stableKey
- *  2. Disk PNG under cacheDir — survives process death; invalidated via lastUpdateTime
+ *  1. Memory [LruCache] — process lifetime, sized by bitmap bytes (not count)
+ *  2. Disk WebP under cacheDir — survives process death; invalidated via lastUpdateTime
  *
- * Disk files: `{md5(stableKey)}_{lastUpdateTime}.png`
- * Adaptive flag: sibling `{same}.png.adaptive` marker file
+ * Disk files: `{hash(stableKey)}_{lastUpdateTime}.webp`
+ * Adaptive flag: sibling `{same}.webp.adaptive` marker file
  */
 object IconCache {
-    private const val DIR_NAME = "app_icons_v2"
-    private const val MAX_MEMORY_ENTRIES = 256
+    private const val DIR_NAME = "app_icons_v3"
+    /** Use 1/8 of available heap for icon memory cache. */
+    private val MAX_MEMORY_BYTES: Int = (Runtime.getRuntime().maxMemory() / 8).toInt()
 
     private val lock = ReentrantReadWriteLock()
 
-    private val memory = object : LruCache<String, IconEntry>(MAX_MEMORY_ENTRIES) {
-        override fun sizeOf(key: String, value: IconEntry): Int = 1
+    private val memory = object : LruCache<String, IconEntry>(MAX_MEMORY_BYTES) {
+        override fun sizeOf(key: String, value: IconEntry): Int {
+            val bmp = value.bitmap.asAndroidBitmap()
+            return bmp.allocationByteCount
+        }
     }
 
     private fun dir(context: Context): File =
         File(context.cacheDir, DIR_NAME).also { if (!it.exists()) it.mkdirs() }
 
+    /** Fast, non-cryptographic hash — no need for MD5 overhead. */
     private fun fileName(stableKey: String, lastUpdateTime: Long): String {
-        val digest = MessageDigest.getInstance("MD5")
-            .digest(stableKey.toByteArray(Charsets.UTF_8))
-        val hex = buildString(digest.size * 2) {
-            for (b in digest) {
-                val i = b.toInt() and 0xff
-                if (i < 16) append('0')
-                append(Integer.toHexString(i))
-            }
-        }
-        return "${hex}_$lastUpdateTime.png"
+        var h = stableKey.hashCode().toLong() and 0xFFFFFFFFL
+        // Mix bits for better distribution
+        h = h xor (h ushr 16)
+        h *= 0x45d9f3bL
+        h = h xor (h ushr 16)
+        return "${h.toString(16)}_$lastUpdateTime.webp"
     }
 
     fun getMemory(stableKey: String): IconEntry? = lock.read { memory.get(stableKey) }
@@ -88,6 +88,7 @@ object IconCache {
         }
     }
 
+    @Suppress("DEPRECATION")
     fun putDisk(
         context: Context,
         stableKey: String,
@@ -106,7 +107,12 @@ object IconCache {
                 androidBmp
             }
             FileOutputStream(file).use { out ->
-                soft.compress(Bitmap.CompressFormat.PNG, 100, out)
+                // WebP is ~40% smaller and faster to encode than PNG
+                val format = if (Build.VERSION.SDK_INT >= 30)
+                    Bitmap.CompressFormat.WEBP_LOSSLESS
+                else
+                    Bitmap.CompressFormat.WEBP
+                soft.compress(format, 100, out)
             }
             if (entry.isAdaptive) {
                 if (!marker.exists()) marker.createNewFile()

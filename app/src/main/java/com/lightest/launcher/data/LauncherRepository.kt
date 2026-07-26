@@ -9,9 +9,7 @@ import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.LayerDrawable
 import android.os.Build
 import android.os.UserManager
-import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
-import com.lightest.launcher.R
 import com.lightest.launcher.model.AppItem
 import com.lightest.launcher.model.IconEntry
 import com.lightest.launcher.model.PackageDetails
@@ -59,31 +57,6 @@ object LauncherRepository {
         }
     }
 
-    private fun customIconResId(pkg: String, cls: String, label: String): Int {
-        return when (pkg) {
-            "com.google.android.calendar" -> R.drawable.ic_custom_calendar
-            "com.transsion.camera" -> R.drawable.ic_custom_camera
-            "com.mixplorer.silver" -> R.drawable.ic_custom_files
-            "com.android.settings" -> R.drawable.ic_custom_settings
-            "com.google.android.apps.photosgo" -> R.drawable.ic_custom_gallery
-            "com.google.android.calculator" -> R.drawable.ic_custom_calculator
-            "com.google.android.deskclock" -> R.drawable.ic_custom_clock
-            "com.transsion.smartmessage" -> R.drawable.ic_custom_messages
-            "com.maxmpz.audioplayer" -> R.drawable.ic_custom_music
-            "com.transsion.soundrecorder" -> R.drawable.ic_custom_recorder
-            "com.sh.smart.caller" -> {
-                if (cls.contains("Contact", ignoreCase = true) ||
-                    label.contains("Contact", ignoreCase = true)
-                ) {
-                    R.drawable.ic_custom_contacts
-                } else {
-                    R.drawable.ic_custom_phone
-                }
-            }
-            else -> 0
-        }
-    }
-
     /**
      * Phase 1 — metadata only.
      * No icon decode, no PackageManager.getPackageInfo, no disk I/O.
@@ -111,7 +84,6 @@ object LauncherRepository {
                         stableKey = stableKey,
                         packageName = pkg,
                         className = cls,
-                        customIconResId = customIconResId(pkg, cls, label),
                         isWorkProfile = isWorkProfile,
                         userHandle = userHandle
                     )
@@ -237,33 +209,29 @@ object LauncherRepository {
     ): IconEntry? {
         return try {
             var isAdaptive = false
-            val drawable = if (app.customIconResId != 0) {
-                ContextCompat.getDrawable(context, app.customIconResId)!!
-            } else {
-                val activityInfo = app.userHandle?.let { uh ->
-                    launcherApps.getActivityList(app.packageName, uh)
-                        .firstOrNull { it.componentName.className == app.className }
-                }
-                val base = try {
-                    activityInfo?.getIcon(densityDpi)
-                        ?: pm.getActivityIcon(ComponentName(app.packageName, app.className))
-                } catch (_: Exception) {
-                    pm.defaultActivityIcon
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                    base is AdaptiveIconDrawable
-                ) {
-                    val bg = base.background
-                    val fg = base.foreground
-                    if (bg != null && fg != null) {
-                        isAdaptive = true
-                        LayerDrawable(arrayOf(bg, fg))
-                    } else {
-                        fg ?: base
-                    }
+            val activityInfo = app.userHandle?.let { uh ->
+                launcherApps.getActivityList(app.packageName, uh)
+                    .firstOrNull { it.componentName.className == app.className }
+            }
+            val base = try {
+                activityInfo?.getIcon(densityDpi)
+                    ?: pm.getActivityIcon(ComponentName(app.packageName, app.className))
+            } catch (_: Exception) {
+                pm.defaultActivityIcon
+            }
+            val drawable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                base is AdaptiveIconDrawable
+            ) {
+                val bg = base.background
+                val fg = base.foreground
+                if (bg != null && fg != null) {
+                    isAdaptive = true
+                    LayerDrawable(arrayOf(bg, fg))
                 } else {
-                    base
+                    fg ?: base
                 }
+            } else {
+                base
             }
 
             val soft = drawable.toBitmap(iconSizePx, iconSizePx, Bitmap.Config.ARGB_8888)

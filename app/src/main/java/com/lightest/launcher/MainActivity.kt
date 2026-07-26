@@ -83,6 +83,7 @@ import com.lightest.launcher.ui.rememberBatteryState
 import com.lightest.launcher.ui.rememberTimeAndDate
 import com.lightest.launcher.ui.rememberVolumeState
 import com.lightest.launcher.ui.theme.LauncherTheme
+import com.lightest.launcher.ui.theme.LauncherColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -255,7 +256,7 @@ fun PitchBlackLauncherScreen() {
                     } else {
                         "Tap another app to swap with ${selectedAppToSwap!!.label}!"
                     },
-                    color = Color(0xFF34C759),
+                    color = LauncherColors.Green,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(top = 8.dp)
@@ -438,9 +439,9 @@ fun CenteredMinimalHeader(
             modifier = Modifier.padding(bottom = 12.dp)
         ) {
             val tempColor = when {
-                temperatureCelsius >= 40f -> Color(0xFFFF3B30)
-                temperatureCelsius >= 35f -> Color(0xFFFF9500)
-                else -> Color(0xFF34C759)
+                temperatureCelsius >= 40f -> LauncherColors.Red
+                temperatureCelsius >= 35f -> LauncherColors.Orange
+                else -> LauncherColors.Green
             }
             Text(
                 text = "TMP: ${"%.1f".format(temperatureCelsius)}°C",
@@ -451,16 +452,16 @@ fun CenteredMinimalHeader(
             )
 
             val batteryColor = when {
-                batteryPct <= 20 -> Color(0xFFFF3B30)
-                batteryPct <= 50 -> Color(0xFFFF9500)
-                else -> Color(0xFF34C759)
+                batteryPct <= 20 -> LauncherColors.Red
+                batteryPct <= 50 -> LauncherColors.Orange
+                else -> LauncherColors.Green
             }
 
             Box(
                 modifier = Modifier
                     .width(80.dp)
                     .height(8.dp)
-                    .background(Color(0xFF333333), RoundedCornerShape(2.dp)),
+                    .background(LauncherColors.TrackBackground, RoundedCornerShape(2.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
@@ -468,7 +469,7 @@ fun CenteredMinimalHeader(
                         .fillMaxHeight()
                         .fillMaxWidth(fraction = (batteryPct / 100f).coerceIn(0.02f, 1f))
                         .background(
-                            if (isCharging) Color(0xFF34C759) else batteryColor,
+                            if (isCharging) LauncherColors.Green else batteryColor,
                             RoundedCornerShape(2.dp)
                         )
                         .align(Alignment.CenterStart)
@@ -523,7 +524,7 @@ fun CenteredMinimalHeader(
                 Icon(
                     painter = painterResource(id = R.drawable.ic_search),
                     contentDescription = "Search",
-                    tint = if (isSearchOpen) Color(0xFF34C759) else Color.White,
+                    tint = if (isSearchOpen) LauncherColors.Green else Color.White,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -533,7 +534,7 @@ fun CenteredMinimalHeader(
                 TextButton(onClick = onToggleEditMode) {
                     Text(
                         text = "Done",
-                        color = Color(0xFF34C759),
+                        color = LauncherColors.Green,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -567,7 +568,7 @@ fun AppCard(
             modifier = Modifier
                 .size(48.dp)
                 .background(
-                    if (isHighlighted) Color(0xFF34C759) else Color(0xFF1A1A1A),
+                    if (isHighlighted) LauncherColors.Green else LauncherColors.CardBackground,
                     shape = CircleShape
                 )
                 .border(

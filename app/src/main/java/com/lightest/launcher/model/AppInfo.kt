@@ -19,8 +19,6 @@ data class AppItem(
     val stableKey: String,
     val packageName: String,
     val className: String,
-    /** Non-zero when a built-in monochrome icon replaces the system icon. */
-    val customIconResId: Int = 0,
     val isWorkProfile: Boolean = false,
     val userHandle: android.os.UserHandle? = null
 )

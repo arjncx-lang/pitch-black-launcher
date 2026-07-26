@@ -20,6 +20,19 @@ data class BatteryData(
     val temperatureCelsius: Float = 0f
 )
 
+/** Single source of truth for battery intent → data conversion. */
+private fun Intent.toBatteryData(): BatteryData {
+    val level = getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+    val scale = getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+    val status = getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+    return BatteryData(
+        percentage = if (level >= 0 && scale > 0) (level * 100) / scale else 100,
+        isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == BatteryManager.BATTERY_STATUS_FULL,
+        temperatureCelsius = getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) / 10.0f
+    )
+}
+
 @Composable
 fun rememberBatteryState(): State<BatteryData> {
     val context = LocalContext.current
@@ -28,57 +41,20 @@ fun rememberBatteryState(): State<BatteryData> {
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
-                if (intent == null) return
-                val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-                val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-                val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
-                val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                        status == BatteryManager.BATTERY_STATUS_FULL
-
-                val pct = if (level >= 0 && scale > 0) {
-                    (level * 100) / scale
-                } else 100
-
-                val tempRaw = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0)
-                val tempCelsius = tempRaw / 10.0f
-
-                batteryState.value = BatteryData(
-                    percentage = pct,
-                    isCharging = isCharging,
-                    temperatureCelsius = tempCelsius
-                )
+                if (intent != null) batteryState.value = intent.toBatteryData()
             }
         }
 
         val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         val stickyIntent = context.registerReceiver(receiver, filter)
         if (stickyIntent != null) {
-            val level = stickyIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-            val scale = stickyIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-            val status = stickyIntent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
-            val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                    status == BatteryManager.BATTERY_STATUS_FULL
-
-            val pct = if (level >= 0 && scale > 0) {
-                (level * 100) / scale
-            } else 100
-
-            val tempRaw = stickyIntent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0)
-            val tempCelsius = tempRaw / 10.0f
-
-            batteryState.value = BatteryData(
-                percentage = pct, 
-                isCharging = isCharging,
-                temperatureCelsius = tempCelsius
-            )
+            batteryState.value = stickyIntent.toBatteryData()
         }
 
         onDispose {
             try {
                 context.unregisterReceiver(receiver)
-            } catch (e: Exception) {
-                // Ignore if unregistering fails
-            }
+            } catch (_: Exception) { }
         }
     }
 

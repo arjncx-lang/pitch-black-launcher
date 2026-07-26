@@ -45,6 +45,7 @@ import com.lightest.launcher.data.LauncherRepository
 import com.lightest.launcher.model.AppItem
 import com.lightest.launcher.model.IconEntry
 import com.lightest.launcher.model.PackageDetails
+import com.lightest.launcher.ui.theme.LauncherColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -81,7 +82,7 @@ fun AppDetailDialog(
                 Box(
                     modifier = Modifier
                         .size(72.dp)
-                        .background(Color(0xFF1A1A1A), shape = CircleShape)
+                        .background(LauncherColors.CardBackground, shape = CircleShape)
                         .clip(CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
@@ -198,9 +199,9 @@ fun AppDetailDialog(
                         onEditLayout()
                     },
                     shape = RoundedCornerShape(50),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF34C759)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, LauncherColors.Green),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Color(0xFF34C759)
+                        contentColor = LauncherColors.Green
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
