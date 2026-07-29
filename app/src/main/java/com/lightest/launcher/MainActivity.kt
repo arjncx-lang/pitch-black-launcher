@@ -23,9 +23,13 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -53,6 +57,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -75,11 +80,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.lightest.launcher.data.IconCache
+import com.lightest.launcher.data.SettingsPrefs
+import com.lightest.launcher.data.HudSettings
 import com.lightest.launcher.data.LauncherRepository
 import com.lightest.launcher.model.AppItem
 import com.lightest.launcher.model.IconEntry
 import com.lightest.launcher.ui.AppDetailDialog
+import com.lightest.launcher.ui.SettingsScreen
 import com.lightest.launcher.ui.rememberBatteryState
+import com.lightest.launcher.ui.rememberSystemStats
 import com.lightest.launcher.ui.rememberTimeAndDate
 import com.lightest.launcher.ui.rememberVolumeState
 import com.lightest.launcher.ui.theme.LauncherTheme
@@ -92,7 +101,7 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+        SettingsPrefs.init(this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         enableEdgeToEdge(
@@ -126,16 +135,15 @@ fun PitchBlackLauncherScreen() {
     val scope = rememberCoroutineScope()
 
     var installedApps by remember { mutableStateOf<List<AppItem>>(emptyList()) }
-    // Icons live in a SnapshotStateMap so only the card for that key recomposes.
-    val iconMap: SnapshotStateMap<String, IconEntry> = remember { mutableStateMapOf() }
+    val iconMap: SnapshotStateMap<String, IconEntry> = remember { mutableStateOf<SnapshotStateMap<String, IconEntry>>(mutableStateMapOf()) }.value
     var searchQuery by remember { mutableStateOf("") }
     var isSearchVisible by remember { mutableStateOf(false) }
     var selectedAppForDialog by remember { mutableStateOf<AppItem?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var isEditMode by remember { mutableStateOf(false) }
     var selectedAppToSwap by remember { mutableStateOf<AppItem?>(null) }
+    var isSettingsOpen by remember { mutableStateOf(false) }
 
-    // Not Compose state — Job changes must not trigger recomposition.
     val iconLoadJob = remember { arrayOfNulls<Job>(1) }
 
     fun startIconLoad(apps: List<AppItem>) {
@@ -154,7 +162,6 @@ fun PitchBlackLauncherScreen() {
             }
             installedApps = apps
             isLoading = false
-            // Drop icons for apps that no longer exist
             val valid = apps.mapTo(HashSet(apps.size)) { it.stableKey }
             val stale = iconMap.keys.filter { it !in valid }
             stale.forEach { iconMap.remove(it) }
@@ -162,7 +169,6 @@ fun PitchBlackLauncherScreen() {
         }
     }
 
-    // Phase 1: paint labels ASAP; Phase 2: stream icons in.
     LaunchedEffect(Unit) {
         val apps = withContext(Dispatchers.IO) {
             LauncherRepository.getInstalledApps(context)
@@ -173,51 +179,69 @@ fun PitchBlackLauncherScreen() {
     }
 
     DisposableEffect(Unit) {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent?) {
-                val pkg = intent?.data?.schemeSpecificPart ?: return
-                when (intent.action) {
-                    Intent.ACTION_PACKAGE_REMOVED -> {
-                        if (intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return
-                        installedApps = installedApps.filter { it.packageName != pkg }
-                        IconCache.removeMemoryByPackage(pkg)
-                        iconMap.keys.filter { it.startsWith("$pkg|") }.forEach { iconMap.remove(it) }
-                    }
-                    else -> reloadAll()
-                }
+        val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+        val callback = object : android.content.pm.LauncherApps.Callback() {
+            override fun onPackageAdded(packageName: String, user: android.os.UserHandle) {
+                reloadAll()
+            }
+            override fun onPackageChanged(packageName: String, user: android.os.UserHandle) {
+                reloadAll()
+            }
+            override fun onPackageRemoved(packageName: String, user: android.os.UserHandle) {
+                installedApps = installedApps.filter { it.packageName != packageName || it.userHandle != user }
+                IconCache.removeMemoryByPackage(packageName)
+                val userSuffix = "|${user.hashCode()}"
+                iconMap.keys.filter { it.startsWith("$packageName|") && it.endsWith(userSuffix) }.forEach { iconMap.remove(it) }
+            }
+            override fun onPackagesAvailable(packageNames: Array<out String>, user: android.os.UserHandle, replacing: Boolean) {
+                reloadAll()
+            }
+            override fun onPackagesUnavailable(packageNames: Array<out String>, user: android.os.UserHandle, replacing: Boolean) {
+                if (!replacing) reloadAll()
+            }
+            override fun onPackagesSuspended(packageNames: Array<out String>, user: android.os.UserHandle) {
+                reloadAll()
+            }
+            override fun onPackagesUnsuspended(packageNames: Array<out String>, user: android.os.UserHandle) {
+                reloadAll()
             }
         }
-        val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_PACKAGE_ADDED)
-            addAction(Intent.ACTION_PACKAGE_REMOVED)
-            addAction(Intent.ACTION_PACKAGE_CHANGED)
-            addDataScheme("package")
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            context.registerReceiver(receiver, filter)
-        }
+        launcherApps.registerCallback(callback)
         onDispose {
             iconLoadJob[0]?.cancel()
-            context.unregisterReceiver(receiver)
+            launcherApps.unregisterCallback(callback)
         }
     }
 
-    val filteredApps = remember(searchQuery, installedApps) {
-        LauncherRepository.filterApps(installedApps, searchQuery)
-    }
+    val showWorkApps by SettingsPrefs.showWorkAppsFlow.collectAsState(initial = true)
 
-    val timeData by rememberTimeAndDate()
-    val batteryData by rememberBatteryState()
-    val volumeData by rememberVolumeState()
+    val filteredApps = remember(searchQuery, installedApps, showWorkApps) {
+        val apps = if (showWorkApps) installedApps else installedApps.filter { !it.isWorkProfile }
+        LauncherRepository.filterApps(apps, searchQuery)
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onVerticalDrag = { change, dragAmount ->
+                        change.consume()
+                        if (dragAmount < -15) { 
+                            isSearchVisible = true
+                        } else if (dragAmount > 15) {
+                            isSearchVisible = false
+                            searchQuery = ""
+                        }
+                    }
+                )
+            }
     ) {
+        if (isSettingsOpen) {
+            SettingsScreen(onDismiss = { isSettingsOpen = false })
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -226,19 +250,9 @@ fun PitchBlackLauncherScreen() {
                 .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             CenteredMinimalHeader(
-                time12 = timeData.time12,
-                amPm = timeData.amPm,
-                dateText = timeData.dateText,
-                weekday = timeData.weekday,
-                batteryPct = batteryData.percentage,
-                isCharging = batteryData.isCharging,
-                temperatureCelsius = batteryData.temperatureCelsius,
-                mediaVolumePct = volumeData.mediaVolumePercentage,
-                ringVolumePct = volumeData.ringVolumePercentage,
-                ringerMode = volumeData.ringerMode,
                 isSearchOpen = isSearchVisible,
                 onToggleSearch = { isSearchVisible = !isSearchVisible },
                 isEditMode = isEditMode,
@@ -280,6 +294,18 @@ fun PitchBlackLauncherScreen() {
                                 fontSize = 14.sp
                             )
                         },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Text(
+                                        text = "✕",
+                                        color = Color.White,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        },
                         singleLine = true,
                         shape = RoundedCornerShape(50),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -312,7 +338,7 @@ fun PitchBlackLauncherScreen() {
                 val gridState = rememberLazyGridState()
 
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(4),
+                    columns = GridCells.Adaptive(minSize = 72.dp),
                     state = gridState,
                     contentPadding = PaddingValues(bottom = 32.dp),
                     modifier = Modifier.fillMaxSize(),
@@ -324,20 +350,19 @@ fun PitchBlackLauncherScreen() {
                         key = { app -> app.stableKey },
                         contentType = { "app_card" }
                     ) { app ->
-                        // Read map here so only this item recomposes when its icon arrives.
                         val iconEntry = iconMap[app.stableKey]
                         AppCard(
                             app = app,
                             iconEntry = iconEntry,
-                            isHighlighted = selectedAppToSwap == app,
-                            onAppClick = { appItem ->
+                            isHighlighted = (app.stableKey == selectedAppToSwap?.stableKey),
+                            onAppClick = {
                                 if (isEditMode) {
                                     if (selectedAppToSwap == null) {
-                                        selectedAppToSwap = appItem
+                                        selectedAppToSwap = it
                                     } else {
                                         val mutableList = installedApps.toMutableList()
                                         val idx1 = mutableList.indexOf(selectedAppToSwap)
-                                        val idx2 = mutableList.indexOf(appItem)
+                                        val idx2 = mutableList.indexOf(it)
                                         if (idx1 != -1 && idx2 != -1) {
                                             val temp = mutableList[idx1]
                                             mutableList[idx1] = mutableList[idx2]
@@ -350,7 +375,11 @@ fun PitchBlackLauncherScreen() {
                                         selectedAppToSwap = null
                                     }
                                 } else {
-                                    launchApp(context, appItem)
+                                    if (it.packageName == context.packageName) {
+                                        isSettingsOpen = true
+                                    } else {
+                                        launchApp(context, it)
+                                    }
                                     isSearchVisible = false
                                     searchQuery = ""
                                 }
@@ -383,134 +412,323 @@ fun PitchBlackLauncherScreen() {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CenteredMinimalHeader(
-    time12: String,
-    amPm: String,
-    dateText: String,
-    weekday: String,
-    batteryPct: Int,
-    isCharging: Boolean,
-    temperatureCelsius: Float,
-    mediaVolumePct: Int,
-    ringVolumePct: Int,
-    ringerMode: Int,
     isSearchOpen: Boolean,
     onToggleSearch: () -> Unit,
     isEditMode: Boolean,
     onToggleEditMode: () -> Unit
 ) {
+    val hud by SettingsPrefs.hudSettingsFlow.collectAsState(initial = HudSettings())
+
+    val timeData by rememberTimeAndDate()
+    val batteryData by rememberBatteryState()
+    val volumeData by rememberVolumeState()
+    val systemStats by rememberSystemStats()
+
+    val time12 = timeData.time12
+    val amPm = timeData.amPm
+    val dateText = timeData.dateText
+    val weekday = timeData.weekday
+    val uptimeText = timeData.uptimeText
+    val batteryPct = batteryData.percentage
+    val isCharging = batteryData.isCharging
+    val deviceTempCelsius = batteryData.deviceTemperatureCelsius
+    val batteryTempCelsius = batteryData.batteryTemperatureCelsius
+    val voltageMv = batteryData.voltageMv
+    val healthLabel = batteryData.healthLabel
+    val currentMa = batteryData.currentMa
+    val thermalLabel = batteryData.thermalLabel
+    val memoryUsedTotal = systemStats.memoryUsedTotalLabel
+    val storageUsedTotal = systemStats.storageUsedTotalLabel
+    val freeRamGb = systemStats.freeRamGb
+    val totalRamGb = systemStats.totalRamGb
+    val freeStorageGb = systemStats.freeStorageGb
+    val totalStorageGb = systemStats.totalStorageGb
+    val refreshRateHz = systemStats.refreshRateHz
+    val mediaVolumePct = volumeData.mediaVolumePercentage
+    val ringVolumePct = volumeData.ringVolumePercentage
+    val ringerMode = volumeData.ringerMode
+
+    val muted = Color.White.copy(alpha = 0.78f)
+
+    // —— Status colors (green = good, orange = caution, red = bad) ——
+    val voltageV = voltageMv / 1000f
+    val voltageColor = when {
+        voltageMv <= 0 -> muted
+        voltageV < 3.50f -> LauncherColors.Red
+        voltageV < 3.60f -> LauncherColors.Orange
+        voltageV > 4.30f -> LauncherColors.Red
+        voltageV > 4.20f -> LauncherColors.Orange
+        else -> LauncherColors.Green
+    }
+    val healthColor = when (healthLabel) {
+        "Good" -> LauncherColors.Green
+        "Cold" -> LauncherColors.Orange
+        "Unknown" -> muted
+        else -> LauncherColors.Red
+    }
+    val thermalColor = when (thermalLabel) {
+        "Normal" -> LauncherColors.Green
+        "Warm" -> LauncherColors.Orange
+        else -> LauncherColors.Red
+    }
+    val deviceTemp = deviceTempCelsius
+    val deviceColor = when {
+        deviceTemp == null -> muted
+        deviceTemp >= 45f -> LauncherColors.Red
+        deviceTemp >= 40f -> LauncherColors.Orange
+        else -> LauncherColors.Green
+    }
+    val batteryTempColor = when {
+        batteryTempCelsius >= 40f -> LauncherColors.Red
+        batteryTempCelsius >= 35f -> LauncherColors.Orange
+        else -> LauncherColors.Green
+    }
+    val batteryPctColor = when {
+        batteryPct <= 15 -> LauncherColors.Red
+        batteryPct <= 30 -> LauncherColors.Orange
+        else -> LauncherColors.Green
+    }
+    // Memory: based on free ratio remaining
+    val freeRamRatio = if (totalRamGb > 0f) freeRamGb / totalRamGb else 1f
+    val memoryColor = when {
+        freeRamRatio < 0.12f -> LauncherColors.Red
+        freeRamRatio < 0.25f -> LauncherColors.Orange
+        else -> LauncherColors.Green
+    }
+    val freeStorageRatio = if (totalStorageGb > 0f) freeStorageGb / totalStorageGb else 1f
+    val storageColor = when {
+        freeStorageRatio < 0.10f -> LauncherColors.Red
+        freeStorageRatio < 0.20f -> LauncherColors.Orange
+        else -> LauncherColors.Green
+    }
+    val currentColor = when {
+        currentMa == null -> muted
+        isCharging && kotlin.math.abs(currentMa) >= 1500 -> LauncherColors.Green
+        isCharging -> LauncherColors.Orange
+        else -> muted
+    }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = time12,
-                fontSize = 42.sp,
-                fontWeight = FontWeight.Light,
-                color = Color.White,
-                letterSpacing = 1.sp
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = amPm,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
+        if (hud.showTime || hud.showDate) {
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (hud.showTime) {
+                    Text(
+                        text = time12,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Light,
+                        color = Color.White,
+                        letterSpacing = 0.5.sp
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = amPm,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
+                if (hud.showTime && hud.showDate) {
+                    Text(
+                        text = "  ·  ",
+                        fontSize = 14.sp,
+                        color = Color.White.copy(alpha = 0.4f),
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
+                if (hud.showDate) {
+                    Text(
+                        text = "$weekday, $dateText",
+                        fontSize = 13.sp,
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontWeight = FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
         }
 
-        Text(
-            text = "$weekday, $dateText",
-            fontSize = 14.sp,
-            color = Color.White.copy(alpha = 0.85f),
-            fontWeight = FontWeight.Normal,
-            modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
-        )
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(bottom = 12.dp)
-        ) {
-            val tempColor = when {
-                temperatureCelsius >= 40f -> LauncherColors.Red
-                temperatureCelsius >= 35f -> LauncherColors.Orange
-                else -> LauncherColors.Green
-            }
-            Text(
-                text = "TMP: ${"%.1f".format(temperatureCelsius)}°C",
-                color = tempColor,
-                fontSize = 10.sp,
-                fontWeight = if (temperatureCelsius >= 40f) FontWeight.Bold else FontWeight.Normal,
-                modifier = Modifier.padding(end = 12.dp)
-            )
-
-            val batteryColor = when {
-                batteryPct <= 20 -> LauncherColors.Red
-                batteryPct <= 50 -> LauncherColors.Orange
-                else -> LauncherColors.Green
-            }
-
-            Box(
-                modifier = Modifier
-                    .width(80.dp)
-                    .height(8.dp)
-                    .background(LauncherColors.TrackBackground, RoundedCornerShape(2.dp)),
-                contentAlignment = Alignment.Center
+        if (hud.showBatteryBar || hud.showBatteryPercent) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(fraction = (batteryPct / 100f).coerceIn(0.02f, 1f))
-                        .background(
-                            if (isCharging) LauncherColors.Green else batteryColor,
-                            RoundedCornerShape(2.dp)
+                if (hud.showBatteryBar) {
+                    Box(
+                        modifier = Modifier
+                            .width(72.dp)
+                            .height(8.dp)
+                            .background(LauncherColors.TrackBackground, RoundedCornerShape(2.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(fraction = (batteryPct / 100f).coerceIn(0.02f, 1f))
+                                .background(
+                                    if (isCharging) LauncherColors.Green else batteryPctColor,
+                                    RoundedCornerShape(2.dp)
+                                )
+                                .align(Alignment.CenterStart)
                         )
-                        .align(Alignment.CenterStart)
-                )
-
-                if (isCharging) {
-                    androidx.compose.foundation.Canvas(modifier = Modifier.size(6.dp)) {
-                        val path = androidx.compose.ui.graphics.Path().apply {
-                            moveTo(size.width * 0.6f, 0f)
-                            lineTo(0f, size.height * 0.55f)
-                            lineTo(size.width * 0.45f, size.height * 0.55f)
-                            lineTo(size.width * 0.2f, size.height)
-                            lineTo(size.width, size.height * 0.45f)
-                            lineTo(size.width * 0.55f, size.height * 0.45f)
-                            close()
+                        if (isCharging) {
+                            androidx.compose.foundation.Canvas(modifier = Modifier.size(6.dp)) {
+                                val path = androidx.compose.ui.graphics.Path().apply {
+                                    moveTo(size.width * 0.6f, 0f)
+                                    lineTo(0f, size.height * 0.55f)
+                                    lineTo(size.width * 0.45f, size.height * 0.55f)
+                                    lineTo(size.width * 0.2f, size.height)
+                                    lineTo(size.width, size.height * 0.45f)
+                                    lineTo(size.width * 0.55f, size.height * 0.45f)
+                                    close()
+                                }
+                                drawPath(path, Color.Black)
+                            }
                         }
-                        drawPath(path, Color.Black)
                     }
+                }
+                if (hud.showBatteryPercent) {
+                    Text(
+                        text = "$batteryPct%",
+                        color = if (isCharging) LauncherColors.Green else batteryPctColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = if (hud.showBatteryBar) 8.dp else 0.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        // Metrics grid — "Label : value" with per-item status colors
+        val showAnyMetric = hud.showDeviceTemp || hud.showBatteryTemp || hud.showVoltage || hud.showThermal || hud.showMemory || hud.showStorage || hud.showRingVolume || hud.showMediaVolume || hud.showRefreshRate || hud.showUptime
+        if (showAnyMetric) {
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            if (hud.showDeviceTemp && deviceTemp != null) {
+                HudMetric(
+                    label = "Device",
+                    value = "${"%.1f".format(deviceTemp)}°C",
+                    color = deviceColor,
+                    emphasize = deviceTemp >= 40f
+                )
+            }
+            if (hud.showBatteryTemp) {
+                HudMetric(
+                    label = "Battery",
+                    value = "${"%.1f".format(batteryTempCelsius)}°C",
+                    color = batteryTempColor,
+                    emphasize = batteryTempCelsius >= 35f
+                )
+            }
+            if (hud.showVoltage && voltageMv > 0) {
+                HudMetric(
+                    label = "Voltage",
+                    value = "${"%.2f".format(voltageV)} V",
+                    color = voltageColor,
+                    emphasize = voltageColor != LauncherColors.Green
+                )
+            }
+            // Health and current are implicitly hidden unless we want toggles. I'll tie them to BatteryTemp for now, or just leave them out if not requested?
+            // The user didn't ask for them specifically. Let's hide them if BatteryTemp is hidden to save space, or just leave them since they aren't toggled.
+            // Wait, they asked for "disable any thing seprately". Let's wrap them in hud.showBatteryTemp or showBatteryPercent to save clutter.
+            
+            if (hud.showBatteryPercent) {
+                HudMetric(
+                    label = "Health",
+                    value = healthLabel,
+                    color = healthColor,
+                    emphasize = healthColor == LauncherColors.Red
+                )
+                if (currentMa != null) {
+                    HudMetric(
+                        label = if (isCharging) "Charging" else "Current",
+                        value = if (isCharging) {
+                            "${kotlin.math.abs(currentMa)} mA"
+                        } else {
+                            "$currentMa mA"
+                        },
+                        color = currentColor,
+                        emphasize = isCharging
+                    )
                 }
             }
 
-            Text(
-                text = "$batteryPct%",
-                color = Color.White,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 8.dp, end = 12.dp)
-            )
-
-            val ringerText = when (ringerMode) {
-                AudioManager.RINGER_MODE_SILENT -> "SLT"
-                AudioManager.RINGER_MODE_VIBRATE -> "VIB"
-                else -> "$ringVolumePct%"
+            if (hud.showThermal) {
+                HudMetric(
+                    label = "Thermal",
+                    value = thermalLabel,
+                    color = thermalColor,
+                    emphasize = thermalLabel != "Normal"
+                )
             }
-            Text(
-                text = "RNG: $ringerText  MED: $mediaVolumePct%",
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Normal
-            )
+            if (hud.showMemory) {
+                HudMetric(
+                    label = "Memory",
+                    value = "$memoryUsedTotal GB",
+                    color = memoryColor,
+                    emphasize = memoryColor != LauncherColors.Green
+                )
+            }
+            if (hud.showStorage) {
+                HudMetric(
+                    label = "Storage",
+                    value = "$storageUsedTotal GB",
+                    color = storageColor,
+                    emphasize = storageColor != LauncherColors.Green
+                )
+            }
+            
+            // Refresh and uptime
+            if (hud.showRefreshRate) {
+                HudMetric(
+                    label = "Refresh",
+                    value = "$refreshRateHz Hz",
+                    color = muted
+                )
+            }
+            if (hud.showUptime) {
+                HudMetric(
+                    label = "Uptime",
+                    value = uptimeText,
+                    color = muted
+                )
+            }
+
+            if (hud.showRingVolume) {
+                val ringerText = when (ringerMode) {
+                    AudioManager.RINGER_MODE_SILENT -> "Silent"
+                    AudioManager.RINGER_MODE_VIBRATE -> "Vibrate"
+                    else -> "$ringVolumePct%"
+                }
+                HudMetric(label = "Ring", value = ringerText, color = muted)
+            }
+            if (hud.showMediaVolume) {
+                HudMetric(label = "Media", value = "$mediaVolumePct%", color = muted)
+            }
         }
+        } // close if (showAnyMetric)
+
+        Spacer(modifier = Modifier.height(4.dp))
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -542,6 +760,23 @@ fun CenteredMinimalHeader(
             }
         }
     }
+}
+
+/** Single HUD chip: "Label : value" with status color. */
+@Composable
+private fun HudMetric(
+    label: String,
+    value: String,
+    color: Color,
+    emphasize: Boolean = false
+) {
+    Text(
+        text = "$label : $value",
+        color = color,
+        fontSize = 10.sp,
+        fontWeight = if (emphasize) FontWeight.Bold else FontWeight.Normal,
+        maxLines = 1
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
