@@ -78,12 +78,12 @@ private fun snapCapacityGb(measuredGb: Float): Int {
  *  - display add/change/remove (refresh rate)
  */
 @Composable
-fun rememberSystemStats(): State<SystemStats> {
+fun rememberSystemStats(refreshKey: Int = 0): State<SystemStats> {
     val context = LocalContext.current
     val statsState = remember { mutableStateOf(SystemStats()) }
     val scope = rememberCoroutineScope()
 
-    DisposableEffect(context) {
+    DisposableEffect(context, refreshKey) {
         fun refresh() {
             scope.launch(Dispatchers.IO) {
                 val next = readSystemStats(context)

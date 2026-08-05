@@ -14,12 +14,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.lightest.launcher.data.SettingsPrefs
+import com.lightest.launcher.model.AppItem
 import com.lightest.launcher.ui.theme.LauncherColors
 
 @Composable
-fun SettingsScreen(onDismiss: () -> Unit) {
+fun SettingsScreen(
+    onDismiss: () -> Unit,
+    allApps: List<AppItem>
+) {
     val hudSettings by SettingsPrefs.hudSettingsFlow.collectAsState()
     val showWorkApps by SettingsPrefs.showWorkAppsFlow.collectAsState()
+    val hiddenApps by SettingsPrefs.hiddenAppsFlow.collectAsState()
+
+    // Build a stableKey → label lookup from the full app list (includes hidden apps)
+    val appLabelMap = remember(allApps) {
+        allApps.associate { it.stableKey to it.label }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -48,7 +58,7 @@ fun SettingsScreen(onDismiss: () -> Unit) {
                         .verticalScroll(rememberScrollState())
                 ) {
                     Text("General", color = LauncherColors.Green, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
-                    SettingsToggle("Show Work Apps", "Show work apps on home screen.", showWorkApps) { SettingsPrefs.setShowWorkApps(it) }
+                    SettingsToggle("Show Work Apps", "Show work apps on a separate swipe page.", showWorkApps) { SettingsPrefs.setShowWorkApps(it) }
 
                     Text("Time & Date", color = LauncherColors.Green, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
                     SettingsToggle("Time", "Show current time.", hudSettings.showTime) { SettingsPrefs.updateHudSettings(hudSettings.copy(showTime = it)) }
@@ -69,6 +79,34 @@ fun SettingsScreen(onDismiss: () -> Unit) {
                     SettingsToggle("Uptime", "Show system uptime.", hudSettings.showUptime) { SettingsPrefs.updateHudSettings(hudSettings.copy(showUptime = it)) }
                     SettingsToggle("Media Volume", "Show media volume percentage.", hudSettings.showMediaVolume) { SettingsPrefs.updateHudSettings(hudSettings.copy(showMediaVolume = it)) }
                     SettingsToggle("Ring Volume", "Show ringer volume percentage.", hudSettings.showRingVolume) { SettingsPrefs.updateHudSettings(hudSettings.copy(showRingVolume = it)) }
+
+                    // ── Hidden Apps ─────────────────────────────────────────────────
+                    Text(
+                        "Hidden Apps",
+                        color = LauncherColors.Green,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 24.dp, bottom = 4.dp)
+                    )
+
+                    if (hiddenApps.isEmpty()) {
+                        Text(
+                            text = "No hidden apps.",
+                            color = Color.Gray,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+                        )
+                    } else {
+                        hiddenApps.forEach { key ->
+                            val label = appLabelMap[key] ?: key.substringBefore("|")
+                            val isWorkApp = allApps.find { it.stableKey == key }?.isWorkProfile == true
+                            HiddenAppRow(
+                                label = label,
+                                isWorkApp = isWorkApp,
+                                onShow = { SettingsPrefs.unhideApp(key) }
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -82,6 +120,42 @@ fun SettingsScreen(onDismiss: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun HiddenAppRow(
+    label: String,
+    isWorkApp: Boolean,
+    onShow: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, color = Color.White, fontSize = 15.sp)
+            if (isWorkApp) {
+                Text(
+                    text = "Work Profile",
+                    color = LauncherColors.Green,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        TextButton(onClick = onShow) {
+            Text(
+                "Show",
+                color = LauncherColors.Green,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp
+            )
+        }
+    }
+    HorizontalDivider(color = Color.White.copy(alpha = 0.06f), thickness = 0.5.dp)
 }
 
 @Composable

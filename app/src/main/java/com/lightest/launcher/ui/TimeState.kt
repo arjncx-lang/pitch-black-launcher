@@ -28,11 +28,11 @@ data class TimeData(
 )
 
 @Composable
-fun rememberTimeAndDate(): State<TimeData> {
+fun rememberTimeAndDate(refreshKey: Int = 0): State<TimeData> {
     val context = LocalContext.current
     val timeState = remember { mutableStateOf(getTimeData()) }
 
-    DisposableEffect(context) {
+    DisposableEffect(context, refreshKey) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 timeState.value = getTimeData()

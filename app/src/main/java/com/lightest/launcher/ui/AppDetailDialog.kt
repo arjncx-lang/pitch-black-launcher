@@ -54,6 +54,7 @@ fun AppDetailDialog(
     appItem: AppItem,
     iconEntry: IconEntry?,
     onDismiss: () -> Unit,
+    onHideApp: () -> Unit,
     onEditLayout: () -> Unit
 ) {
     val context = LocalContext.current
@@ -112,6 +113,16 @@ fun AppDetailDialog(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+
+                if (appItem.isWorkProfile) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Work Profile",
+                        color = LauncherColors.Green,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -208,6 +219,25 @@ fun AppDetailDialog(
                         .height(48.dp)
                 ) {
                     Text("Edit Layout", fontWeight = FontWeight.SemiBold)
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Hide App — removes from launcher; restorable via Settings > Hidden Apps
+                OutlinedButton(
+                    onClick = onHideApp,
+                    shape = RoundedCornerShape(50),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp, Color(0xFFFF6B35)
+                    ),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Color(0xFFFF6B35)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Text("Hide App", fontWeight = FontWeight.SemiBold)
                 }
             }
         }

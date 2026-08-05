@@ -8,8 +8,8 @@ import kotlinx.coroutines.flow.asStateFlow
 
 object SettingsPrefs {
     private const val PREFS_NAME = "launcher_settings"
-    private const val KEY_SHOW_SYSTEM_STATS = "show_system_stats"
     private const val KEY_SHOW_WORK_APPS = "show_work_apps"
+    private const val KEY_HIDDEN_APPS = "hidden_apps"
 
     private lateinit var prefs: SharedPreferences
 
@@ -19,10 +19,14 @@ object SettingsPrefs {
     private val _showWorkAppsFlow = MutableStateFlow(true)
     val showWorkAppsFlow: StateFlow<Boolean> = _showWorkAppsFlow.asStateFlow()
 
+    private val _hiddenAppsFlow = MutableStateFlow<Set<String>>(emptySet())
+    val hiddenAppsFlow: StateFlow<Set<String>> = _hiddenAppsFlow.asStateFlow()
+
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _showWorkAppsFlow.value = prefs.getBoolean(KEY_SHOW_WORK_APPS, true)
-        
+        _hiddenAppsFlow.value = prefs.getStringSet(KEY_HIDDEN_APPS, emptySet()) ?: emptySet()
+
         _hudSettingsFlow.value = HudSettings(
             showTime = prefs.getBoolean("show_time", true),
             showDate = prefs.getBoolean("show_date", true),
@@ -64,6 +68,20 @@ object SettingsPrefs {
     fun setShowWorkApps(show: Boolean) {
         prefs.edit().putBoolean(KEY_SHOW_WORK_APPS, show).apply()
         _showWorkAppsFlow.value = show
+    }
+
+    /** Hide an app from the launcher by its stableKey. Persisted immediately. */
+    fun hideApp(stableKey: String) {
+        val updated = _hiddenAppsFlow.value + stableKey
+        prefs.edit().putStringSet(KEY_HIDDEN_APPS, updated).apply()
+        _hiddenAppsFlow.value = updated
+    }
+
+    /** Restore a previously hidden app. Persisted immediately. */
+    fun unhideApp(stableKey: String) {
+        val updated = _hiddenAppsFlow.value - stableKey
+        prefs.edit().putStringSet(KEY_HIDDEN_APPS, updated).apply()
+        _hiddenAppsFlow.value = updated
     }
 }
 

@@ -25,11 +25,11 @@ data class VolumeData(
 )
 
 @Composable
-fun rememberVolumeState(): State<VolumeData> {
+fun rememberVolumeState(refreshKey: Int = 0): State<VolumeData> {
     val context = LocalContext.current
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
 
-    val volumeState = remember {
+    val volumeState = remember(refreshKey) {
         mutableStateOf(
             VolumeData(
                 mediaVolumePercentage = volumePct(audioManager, AudioManager.STREAM_MUSIC),
@@ -39,7 +39,7 @@ fun rememberVolumeState(): State<VolumeData> {
         )
     }
 
-    DisposableEffect(context) {
+    DisposableEffect(context, refreshKey) {
         val ringerReceiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 if (intent?.action == AudioManager.RINGER_MODE_CHANGED_ACTION) {

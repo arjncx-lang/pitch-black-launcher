@@ -112,11 +112,11 @@ fun thermalStatusToLabel(status: Int): String = when (status) {
  * (API 29+) thermal status callbacks. Device °C is one-shot + 30s cache.
  */
 @Composable
-fun rememberBatteryState(): State<BatteryData> {
+fun rememberBatteryState(refreshKey: Int = 0): State<BatteryData> {
     val context = LocalContext.current
     val batteryState = remember { mutableStateOf(BatteryData()) }
 
-    DisposableEffect(context) {
+    DisposableEffect(context, refreshKey) {
         val appContext = context.applicationContext
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
 

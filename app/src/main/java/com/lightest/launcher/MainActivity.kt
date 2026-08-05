@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
@@ -46,6 +47,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -61,6 +64,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -143,6 +147,7 @@ fun PitchBlackLauncherScreen() {
     var isEditMode by remember { mutableStateOf(false) }
     var selectedAppToSwap by remember { mutableStateOf<AppItem?>(null) }
     var isSettingsOpen by remember { mutableStateOf(false) }
+    var refreshKey by remember { mutableIntStateOf(0) }
 
     val iconLoadJob = remember { arrayOfNulls<Job>(1) }
 
@@ -169,6 +174,27 @@ fun PitchBlackLauncherScreen() {
         }
     }
 
+    // Intercept back presses so Android never re-delivers the HOME intent
+    // (which causes the launcher slide-in animation bug on spam-back).
+    BackHandler(enabled = true) {
+        when {
+            isSettingsOpen -> isSettingsOpen = false
+            isSearchVisible || searchQuery.isNotEmpty() -> {
+                isSearchVisible = false
+                searchQuery = ""
+            }
+            isEditMode -> {
+                isEditMode = false
+                selectedAppToSwap = null
+            }
+            // On idle home screen: refresh the app list and HUD stats
+            else -> {
+                reloadAll()
+                refreshKey++
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         val apps = withContext(Dispatchers.IO) {
             LauncherRepository.getInstalledApps(context)
@@ -188,10 +214,7 @@ fun PitchBlackLauncherScreen() {
                 reloadAll()
             }
             override fun onPackageRemoved(packageName: String, user: android.os.UserHandle) {
-                installedApps = installedApps.filter { it.packageName != packageName || it.userHandle != user }
-                IconCache.removeMemoryByPackage(packageName)
-                val userSuffix = "|${user.hashCode()}"
-                iconMap.keys.filter { it.startsWith("$packageName|") && it.endsWith(userSuffix) }.forEach { iconMap.remove(it) }
+                reloadAll()
             }
             override fun onPackagesAvailable(packageNames: Array<out String>, user: android.os.UserHandle, replacing: Boolean) {
                 reloadAll()
@@ -214,10 +237,14 @@ fun PitchBlackLauncherScreen() {
     }
 
     val showWorkApps by SettingsPrefs.showWorkAppsFlow.collectAsState(initial = true)
+    val hiddenApps by SettingsPrefs.hiddenAppsFlow.collectAsState(initial = emptySet())
 
-    val filteredApps = remember(searchQuery, installedApps, showWorkApps) {
-        val apps = if (showWorkApps) installedApps else installedApps.filter { !it.isWorkProfile }
-        LauncherRepository.filterApps(apps, searchQuery)
+    val (regularApps, workApps) = remember(searchQuery, installedApps, showWorkApps, hiddenApps) {
+        val nonHidden = installedApps.filter { it.stableKey !in hiddenApps }
+        val filtered = LauncherRepository.filterApps(nonHidden, searchQuery)
+        val regular = filtered.filter { !it.isWorkProfile }
+        val work = filtered.filter { it.isWorkProfile }
+        regular to work
     }
 
     Box(
@@ -239,7 +266,10 @@ fun PitchBlackLauncherScreen() {
             }
     ) {
         if (isSettingsOpen) {
-            SettingsScreen(onDismiss = { isSettingsOpen = false })
+            SettingsScreen(
+                onDismiss = { isSettingsOpen = false },
+                allApps = installedApps
+            )
         }
 
         Column(
@@ -260,7 +290,8 @@ fun PitchBlackLauncherScreen() {
                     isEditMode = !isEditMode
                     selectedAppToSwap = null
                     isSearchVisible = false
-                }
+                },
+                refreshKey = refreshKey
             )
 
             AnimatedVisibility(visible = isEditMode) {
@@ -288,8 +319,9 @@ fun PitchBlackLauncherScreen() {
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
                         placeholder = {
+                            val totalSize = regularApps.size + if (showWorkApps) workApps.size else 0
                             Text(
-                                text = "Search ${filteredApps.size} apps...",
+                                text = "Search $totalSize apps...",
                                 color = Color.Gray,
                                 fontSize = 14.sp
                             )
@@ -335,62 +367,96 @@ fun PitchBlackLauncherScreen() {
                     )
                 }
             } else {
-                val gridState = rememberLazyGridState()
+                val pages = if (showWorkApps && workApps.isNotEmpty()) 2 else 1
+                val pagerState = rememberPagerState(pageCount = { pages })
 
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 72.dp),
-                    state = gridState,
-                    contentPadding = PaddingValues(bottom = 32.dp),
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(
-                        items = filteredApps,
-                        key = { app -> app.stableKey },
-                        contentType = { "app_card" }
-                    ) { app ->
-                        val iconEntry = iconMap[app.stableKey]
-                        AppCard(
-                            app = app,
-                            iconEntry = iconEntry,
-                            isHighlighted = (app.stableKey == selectedAppToSwap?.stableKey),
-                            onAppClick = {
-                                if (isEditMode) {
-                                    if (selectedAppToSwap == null) {
-                                        selectedAppToSwap = it
-                                    } else {
-                                        val mutableList = installedApps.toMutableList()
-                                        val idx1 = mutableList.indexOf(selectedAppToSwap)
-                                        val idx2 = mutableList.indexOf(it)
-                                        if (idx1 != -1 && idx2 != -1) {
-                                            val temp = mutableList[idx1]
-                                            mutableList[idx1] = mutableList[idx2]
-                                            mutableList[idx2] = temp
-                                            installedApps = mutableList
-                                            scope.launch(Dispatchers.IO) {
-                                                LauncherRepository.saveAppOrder(context, mutableList)
-                                            }
-                                        }
-                                        selectedAppToSwap = null
-                                    }
-                                } else {
-                                    if (it.packageName == context.packageName) {
-                                        isSettingsOpen = true
-                                    } else {
-                                        launchApp(context, it)
-                                    }
-                                    isSearchVisible = false
-                                    searchQuery = ""
+                val handleAppClick: (AppItem) -> Unit = { it ->
+                    if (isEditMode) {
+                        if (selectedAppToSwap == null) {
+                            selectedAppToSwap = it
+                        } else {
+                            val mutableList = installedApps.toMutableList()
+                            val idx1 = mutableList.indexOf(selectedAppToSwap)
+                            val idx2 = mutableList.indexOf(it)
+                            if (idx1 != -1 && idx2 != -1) {
+                                val temp = mutableList[idx1]
+                                mutableList[idx1] = mutableList[idx2]
+                                mutableList[idx2] = temp
+                                installedApps = mutableList
+                                scope.launch(Dispatchers.IO) {
+                                    LauncherRepository.saveAppOrder(context, mutableList)
                                 }
-                            },
-                            onAppLongClick = {
-                                if (!isEditMode) selectedAppForDialog = it
                             }
-                        )
+                            selectedAppToSwap = null
+                        }
+                    } else {
+                        if (it.packageName == context.packageName) {
+                            isSettingsOpen = true
+                        } else {
+                            launchApp(context, it)
+                        }
+                        isSearchVisible = false
+                        searchQuery = ""
                     }
-                    item(key = "bottom_spacer", contentType = "spacer") {
-                        Spacer(modifier = Modifier.height(32.dp))
+                }
+
+                val handleAppLongClick: (AppItem) -> Unit = { it ->
+                    if (!isEditMode) selectedAppForDialog = it
+                }
+
+                Column(modifier = Modifier.fillMaxSize()) {
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.weight(1f)
+                    ) { page ->
+                        if (page == 0) {
+                            AppGrid(
+                                apps = regularApps,
+                                iconMap = iconMap,
+                                isHighlighted = { it.stableKey == selectedAppToSwap?.stableKey },
+                                onAppClick = handleAppClick,
+                                onAppLongClick = handleAppLongClick
+                            )
+                        } else {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Text(
+                                    "Work",
+                                    color = LauncherColors.Green,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .padding(bottom = 8.dp)
+                                        .align(Alignment.CenterHorizontally)
+                                )
+                                AppGrid(
+                                    apps = workApps,
+                                    iconMap = iconMap,
+                                    isHighlighted = { it.stableKey == selectedAppToSwap?.stableKey },
+                                    onAppClick = handleAppClick,
+                                    onAppLongClick = handleAppLongClick
+                                )
+                            }
+                        }
+                    }
+
+                    if (pages > 1) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 16.dp),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            repeat(pages) { iteration ->
+                                val color = if (pagerState.currentPage == iteration) LauncherColors.Green else Color.DarkGray
+                                Box(
+                                    modifier = Modifier
+                                        .padding(4.dp)
+                                        .clip(CircleShape)
+                                        .background(color)
+                                        .size(6.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -401,6 +467,10 @@ fun PitchBlackLauncherScreen() {
                 appItem = app,
                 iconEntry = iconMap[app.stableKey],
                 onDismiss = { selectedAppForDialog = null },
+                onHideApp = {
+                    SettingsPrefs.hideApp(app.stableKey)
+                    selectedAppForDialog = null
+                },
                 onEditLayout = {
                     isEditMode = true
                     selectedAppToSwap = app
@@ -412,20 +482,59 @@ fun PitchBlackLauncherScreen() {
     }
 }
 
+@Composable
+fun AppGrid(
+    apps: List<AppItem>,
+    iconMap: Map<String, IconEntry>,
+    isHighlighted: (AppItem) -> Boolean,
+    onAppClick: (AppItem) -> Unit,
+    onAppLongClick: (AppItem) -> Unit
+) {
+    val gridState = rememberLazyGridState()
+
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 72.dp),
+        state = gridState,
+        contentPadding = PaddingValues(bottom = 32.dp),
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(
+            items = apps,
+            key = { app -> app.stableKey },
+            contentType = { "app_card" }
+        ) { app ->
+            val iconEntry = iconMap[app.stableKey]
+            AppCard(
+                app = app,
+                iconEntry = iconEntry,
+                isHighlighted = isHighlighted(app),
+                onAppClick = { onAppClick(app) },
+                onAppLongClick = { onAppLongClick(app) }
+            )
+        }
+        item(key = "bottom_spacer", contentType = "spacer") {
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CenteredMinimalHeader(
     isSearchOpen: Boolean,
     onToggleSearch: () -> Unit,
     isEditMode: Boolean,
-    onToggleEditMode: () -> Unit
+    onToggleEditMode: () -> Unit,
+    refreshKey: Int = 0
 ) {
     val hud by SettingsPrefs.hudSettingsFlow.collectAsState(initial = HudSettings())
 
-    val timeData by rememberTimeAndDate()
-    val batteryData by rememberBatteryState()
-    val volumeData by rememberVolumeState()
-    val systemStats by rememberSystemStats()
+    val timeData by rememberTimeAndDate(refreshKey)
+    val batteryData by rememberBatteryState(refreshKey)
+    val volumeData by rememberVolumeState(refreshKey)
+    val systemStats by rememberSystemStats(refreshKey)
 
     val time12 = timeData.time12
     val amPm = timeData.amPm
