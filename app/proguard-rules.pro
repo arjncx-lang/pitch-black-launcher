@@ -4,6 +4,9 @@
 # Framework types touched via system services (safe no-ops if unused after shrink)
 -keep class android.os.UserHandle { *; }
 
+# System instantiates this from the manifest to call lockNow()
+-keep class com.lightest.launcher.LockScreenAdminReceiver { *; }
+
 # Strip logging / stack traces in release (zero runtime cost, smaller dex)
 -assumenosideeffects class android.util.Log {
     public static int v(...);

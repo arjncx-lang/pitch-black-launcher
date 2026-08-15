@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">Launcher</string>
+    <string name="lock_admin_label">Lock screen</string>
+    <string name="lock_admin_description">Allows the lock button to turn off and lock the screen without using the power button.</string>
+    <string name="lock_admin_explanation">Lets the lock icon turn off and lock the screen instantly. Only the lock policy is used — nothing else.</string>
+    <string name="lock_admin_enable_toast">Activate lock permission, then the screen will lock</string>
 </resources>

@@ -12,6 +12,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -102,6 +103,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+
+    private val requestLockAdmin = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            ScreenLocker.lockNow(this)
+        }
+    }
+
+    fun lockScreen() {
+        if (!ScreenLocker.lockNow(this)) {
+            Toast.makeText(this, R.string.lock_admin_enable_toast, Toast.LENGTH_SHORT).show()
+            requestLockAdmin.launch(ScreenLocker.adminRequestIntent(this))
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SettingsPrefs.init(this)
@@ -331,7 +348,8 @@ fun PitchBlackLauncherScreen() {
                     searchQuery = ""
                 },
                 onRefreshApps = { refreshAppsManually() },
-                isRefreshingApps = isRefreshingApps
+                isRefreshingApps = isRefreshingApps,
+                onLockScreen = { (context as MainActivity).lockScreen() }
             )
 
             AnimatedVisibility(visible = isEditMode) {
@@ -576,7 +594,8 @@ fun CenteredMinimalHeader(
     onSwipeOpenSearch: () -> Unit = {},
     onSwipeCloseSearch: () -> Unit = {},
     onRefreshApps: () -> Unit = {},
-    isRefreshingApps: Boolean = false
+    isRefreshingApps: Boolean = false,
+    onLockScreen: () -> Unit = {}
 ) {
     val hud by SettingsPrefs.hudSettingsFlow.collectAsState(initial = HudSettings())
 
@@ -935,6 +954,18 @@ fun CenteredMinimalHeader(
                     painter = painterResource(id = R.drawable.ic_refresh),
                     contentDescription = "Refresh apps",
                     tint = if (isRefreshingApps) LauncherColors.Green else Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            IconButton(
+                onClick = onLockScreen,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_lock),
+                    contentDescription = "Lock screen",
+                    tint = Color.White,
                     modifier = Modifier.size(20.dp)
                 )
             }
