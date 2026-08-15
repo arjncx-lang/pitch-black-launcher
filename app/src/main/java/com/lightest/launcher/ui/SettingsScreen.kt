@@ -67,6 +67,8 @@ fun SettingsScreen(
                     Text("Battery", color = LauncherColors.Green, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
                     SettingsToggle("Battery Bar", "Show graphical battery bar.", hudSettings.showBatteryBar) { SettingsPrefs.updateHudSettings(hudSettings.copy(showBatteryBar = it)) }
                     SettingsToggle("Battery Percent", "Show numeric battery percentage.", hudSettings.showBatteryPercent) { SettingsPrefs.updateHudSettings(hudSettings.copy(showBatteryPercent = it)) }
+                    SettingsToggle("Battery Health", "Show battery health label.", hudSettings.showHealth) { SettingsPrefs.updateHudSettings(hudSettings.copy(showHealth = it)) }
+                    SettingsToggle("Charge Current", "Show live charge / drain in mA.", hudSettings.showCurrent) { SettingsPrefs.updateHudSettings(hudSettings.copy(showCurrent = it)) }
 
                     Text("System HUD", color = LauncherColors.Green, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
                     SettingsToggle("Voltage", "Show battery voltage.", hudSettings.showVoltage) { SettingsPrefs.updateHudSettings(hudSettings.copy(showVoltage = it)) }

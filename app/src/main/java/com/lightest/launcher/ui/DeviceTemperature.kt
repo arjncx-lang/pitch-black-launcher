@@ -12,15 +12,16 @@ import android.os.Looper
 import android.os.Parcel
 import android.os.SystemClock
 import java.io.File
+import java.util.EnumSet
 
 /**
  * Zero-drain device temperature reader.
  *
  * Never polls on a timer and never keeps sensors registered.
  * Call [request] only from existing passive events (battery sticky broadcast,
- * thermal status callbacks). Results are cached; re-reads are rate-limited.
+ * thermal status callbacks) or an explicit user refresh (Back / resume).
  *
- * Sources (first that works on this device, then sticky):
+ * Sources (first that actually returns a value; failed sources are skipped):
  *  1. One-shot SensorManager sample (gyro/ambient die temp — works on MTK/Infinix)
  *  2. Raw IThermalService binder (older Android; modern builds need DEVICE_POWER)
  *  3. Sysfs thermal zones (older / unlocked devices)
@@ -51,6 +52,8 @@ internal object DeviceTemperature {
     @Volatile
     private var source: Source = Source.UNRESOLVED
 
+    private val disabledSources: EnumSet<Source> = EnumSet.noneOf(Source::class.java)
+
     @Volatile
     private var cachedCelsius: Float? = null
 
@@ -80,34 +83,18 @@ internal object DeviceTemperature {
     /**
      * Request a device temperature update. Invokes [onResult] on the main thread
      * with the best available value (may be cached). Never throws.
+     *
+     * [force] bypasses the 30s cache — used for Back / on-resume refresh.
      */
-    fun request(context: Context, onResult: (Float?) -> Unit) {
+    fun request(context: Context, force: Boolean = false, onResult: (Float?) -> Unit) {
         try {
             val cached = cachedCelsius
             val now = SystemClock.elapsedRealtime()
-            if (cached != null && now - lastReadElapsedMs < MIN_READ_INTERVAL_MS) {
+            if (!force && cached != null && now - lastReadElapsedMs < MIN_READ_INTERVAL_MS) {
                 onResult(cached)
                 return
             }
-
-            when (resolveSource(context)) {
-                Source.SENSOR -> {
-                    // Reserve rate-limit slot before async sample.
-                    lastReadElapsedMs = SystemClock.elapsedRealtime()
-                    readFromSensor(context, onResult)
-                }
-                Source.BINDER -> {
-                    lastReadElapsedMs = SystemClock.elapsedRealtime()
-                    val v = readFromBinder()
-                    publish(v, onResult)
-                }
-                Source.SYSFS -> {
-                    lastReadElapsedMs = SystemClock.elapsedRealtime()
-                    val v = readFromSysfs()
-                    publish(v, onResult)
-                }
-                else -> onResult(cached)
-            }
+            readFromBestSource(context.applicationContext, onResult)
         } catch (_: Throwable) {
             onResult(cachedCelsius)
         }
@@ -121,36 +108,77 @@ internal object DeviceTemperature {
         onResult(cachedCelsius)
     }
 
+    private fun disable(failed: Source) {
+        synchronized(this) {
+            disabledSources.add(failed)
+            source = Source.UNRESOLVED
+            if (failed == Source.BINDER) thermalBinder = null
+            if (failed == Source.SYSFS) cachedTempFile = null
+        }
+    }
+
     private fun resolveSource(context: Context): Source {
-        if (source != Source.UNRESOLVED) return source
+        if (source != Source.UNRESOLVED && source != Source.UNAVAILABLE) return source
 
         synchronized(this) {
-            if (source != Source.UNRESOLVED) return source
+            if (source != Source.UNRESOLVED && source != Source.UNAVAILABLE) return source
 
             val app = context.applicationContext
 
-            // 1) On-device IMU/ambient temp sensor — no special permission.
-            if (findTempSensor(app) != null) {
+            if (Source.SENSOR !in disabledSources && findTempSensor(app) != null) {
                 source = Source.SENSOR
                 return source
             }
 
-            // 2) ThermalService binder (works pre-permission-hardening).
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && initBinder()) {
+            if (Source.BINDER !in disabledSources &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                initBinder()
+            ) {
                 source = Source.BINDER
                 return source
             }
 
-            // 3) Sysfs
-            val sysfs = resolveSysfsTempFile()
-            if (sysfs != null) {
-                cachedTempFile = sysfs
-                source = Source.SYSFS
-                return source
+            if (Source.SYSFS !in disabledSources) {
+                val sysfs = resolveSysfsTempFile()
+                if (sysfs != null) {
+                    cachedTempFile = sysfs
+                    source = Source.SYSFS
+                    return source
+                }
             }
 
             source = Source.UNAVAILABLE
             return source
+        }
+    }
+
+    private fun readFromBestSource(context: Context, onResult: (Float?) -> Unit) {
+        when (resolveSource(context)) {
+            Source.SENSOR -> {
+                lastReadElapsedMs = SystemClock.elapsedRealtime()
+                readFromSensor(context, onResult)
+            }
+            Source.BINDER -> {
+                lastReadElapsedMs = SystemClock.elapsedRealtime()
+                val v = readFromBinder()
+                if (v == null) {
+                    disable(Source.BINDER)
+                    readFromBestSource(context, onResult)
+                } else {
+                    publish(v, onResult)
+                }
+            }
+            Source.SYSFS -> {
+                lastReadElapsedMs = SystemClock.elapsedRealtime()
+                val v = readFromSysfs()
+                if (v == null) {
+                    disable(Source.SYSFS)
+                    readFromBestSource(context, onResult)
+                } else {
+                    publish(v, onResult)
+                }
+            }
+            else -> onResult(cachedCelsius)
         }
     }
 
@@ -194,9 +222,8 @@ internal object DeviceTemperature {
         val sm = app.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
         val sensor = if (sm != null) findTempSensor(app) else null
         if (sm == null || sensor == null) {
-            // Sensor vanished — allow re-resolve.
-            source = Source.UNRESOLVED
-            onResult(cachedCelsius)
+            disable(Source.SENSOR)
+            readFromBestSource(app, onResult)
             return
         }
 
@@ -207,7 +234,6 @@ internal object DeviceTemperature {
             override fun onSensorChanged(event: SensorEvent?) {
                 if (event == null || event.values.isEmpty()) return
                 val raw = event.values[0]
-                // Sensors report °C; reject garbage.
                 val celsius = if (raw in 5f..99f) raw else null
                 finish(celsius)
             }
@@ -221,7 +247,14 @@ internal object DeviceTemperature {
                     sm.unregisterListener(this)
                 } catch (_: Throwable) { }
                 sensorInFlight = false
-                mainHandler.post { publish(value, onResult) }
+                mainHandler.post {
+                    if (value != null) {
+                        publish(value, onResult)
+                    } else {
+                        disable(Source.SENSOR)
+                        readFromBestSource(app, onResult)
+                    }
+                }
             }
         }
 
@@ -233,8 +266,8 @@ internal object DeviceTemperature {
 
         if (!registered) {
             sensorInFlight = false
-            source = Source.UNRESOLVED
-            onResult(cachedCelsius)
+            disable(Source.SENSOR)
+            readFromBestSource(app, onResult)
             return
         }
 
@@ -246,7 +279,8 @@ internal object DeviceTemperature {
                 } catch (_: Throwable) { }
                 sensorInFlight = false
                 delivered = true
-                onResult(cachedCelsius)
+                disable(Source.SENSOR)
+                readFromBestSource(app, onResult)
             }
         }, SENSOR_TIMEOUT_MS)
     }
@@ -281,7 +315,6 @@ internal object DeviceTemperature {
     private fun readFromBinder(): Float? {
         val binder = thermalBinder ?: return null
         if (!binder.isBinderAlive) {
-            source = Source.UNRESOLVED
             thermalBinder = null
             return null
         }
@@ -353,8 +386,6 @@ internal object DeviceTemperature {
             val celsius = tempFile.readText().trim().toLong() / 1000f
             if (celsius in 5f..99f) celsius else null
         } catch (_: Exception) {
-            source = Source.UNRESOLVED
-            cachedTempFile = null
             null
         }
     }

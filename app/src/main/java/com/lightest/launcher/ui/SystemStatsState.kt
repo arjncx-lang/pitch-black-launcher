@@ -13,7 +13,6 @@ import android.os.Looper
 import android.os.StatFs
 import android.view.WindowManager
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
@@ -78,58 +77,69 @@ private fun snapCapacityGb(measuredGb: Float): Int {
  *  - display add/change/remove (refresh rate)
  */
 @Composable
-fun rememberSystemStats(refreshKey: Int = 0): State<SystemStats> {
+fun rememberSystemStats(
+    refreshKey: Int = 0,
+    enabled: Boolean = true
+): State<SystemStats> {
     val context = LocalContext.current
     val statsState = remember { mutableStateOf(SystemStats()) }
     val scope = rememberCoroutineScope()
 
-    DisposableEffect(context, refreshKey) {
-        fun refresh() {
-            scope.launch(Dispatchers.IO) {
-                val next = readSystemStats(context)
-                withContext(Dispatchers.Main) {
-                    if (next != statsState.value) {
-                        statsState.value = next
-                    }
+    fun refresh() {
+        scope.launch(Dispatchers.IO) {
+            val next = readSystemStats(context)
+            withContext(Dispatchers.Main) {
+                if (next != statsState.value) {
+                    statsState.value = next
                 }
             }
         }
-        
-        refresh()
+    }
 
-        val tickReceiver = object : BroadcastReceiver() {
+    val tickReceiver = remember {
+        object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 refresh()
             }
         }
-        val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_TIME_TICK)
-            addAction(Intent.ACTION_DEVICE_STORAGE_LOW)
-            addAction(Intent.ACTION_DEVICE_STORAGE_OK)
-        }
-        context.registerReceiver(tickReceiver, filter)
-
-        val displayManager =
-            context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
-        val displayListener = object : DisplayManager.DisplayListener {
+    }
+    val displayManager = remember {
+        context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+    }
+    val displayListener = remember {
+        object : DisplayManager.DisplayListener {
             override fun onDisplayAdded(displayId: Int) = refresh()
             override fun onDisplayRemoved(displayId: Int) = refresh()
             override fun onDisplayChanged(displayId: Int) = refresh()
         }
-        displayManager?.registerDisplayListener(
-            displayListener,
-            Handler(Looper.getMainLooper())
-        )
+    }
 
-        onDispose {
+    HudLifecycleEffect(
+        enabled = enabled,
+        refreshKey = refreshKey,
+        onStart = {
+            refresh()
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_TIME_TICK)
+                addAction(Intent.ACTION_DEVICE_STORAGE_LOW)
+                addAction(Intent.ACTION_DEVICE_STORAGE_OK)
+            }
+            context.registerReceiver(tickReceiver, filter)
+            displayManager?.registerDisplayListener(
+                displayListener,
+                Handler(Looper.getMainLooper())
+            )
+        },
+        onStop = {
             try {
                 context.unregisterReceiver(tickReceiver)
             } catch (_: Exception) { }
             try {
                 displayManager?.unregisterDisplayListener(displayListener)
             } catch (_: Exception) { }
-        }
-    }
+        },
+        onRefresh = { refresh() }
+    )
 
     return statsState
 }

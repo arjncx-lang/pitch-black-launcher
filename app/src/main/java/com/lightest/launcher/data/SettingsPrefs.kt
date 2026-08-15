@@ -41,7 +41,16 @@ object SettingsPrefs {
             showRefreshRate = prefs.getBoolean("show_refresh", true),
             showUptime = prefs.getBoolean("show_uptime", true),
             showMediaVolume = prefs.getBoolean("show_media_volume", true),
-            showRingVolume = prefs.getBoolean("show_ring_volume", true)
+            showRingVolume = prefs.getBoolean("show_ring_volume", true),
+            // Existing installs inherit Battery % so the HUD does not suddenly change.
+            showHealth = prefs.getBoolean(
+                "show_health",
+                prefs.getBoolean("show_battery_percent", true)
+            ),
+            showCurrent = prefs.getBoolean(
+                "show_current",
+                prefs.getBoolean("show_battery_percent", true)
+            )
         )
     }
 
@@ -61,6 +70,8 @@ object SettingsPrefs {
             putBoolean("show_uptime", settings.showUptime)
             putBoolean("show_media_volume", settings.showMediaVolume)
             putBoolean("show_ring_volume", settings.showRingVolume)
+            putBoolean("show_health", settings.showHealth)
+            putBoolean("show_current", settings.showCurrent)
         }.apply()
         _hudSettingsFlow.value = settings
     }
@@ -99,5 +110,7 @@ data class HudSettings(
     val showRefreshRate: Boolean = true,
     val showUptime: Boolean = true,
     val showMediaVolume: Boolean = true,
-    val showRingVolume: Boolean = true
+    val showRingVolume: Boolean = true,
+    val showHealth: Boolean = true,
+    val showCurrent: Boolean = true
 )

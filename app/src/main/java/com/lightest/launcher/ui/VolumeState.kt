@@ -4,13 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.database.ContentObserver
 import android.media.AudioManager
-import android.os.Handler
-import android.os.Looper
-import android.provider.Settings
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
@@ -24,63 +19,73 @@ data class VolumeData(
     val ringerMode: Int = AudioManager.RINGER_MODE_NORMAL
 )
 
+private const val ACTION_VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
+private const val EXTRA_VOLUME_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE"
+
 @Composable
-fun rememberVolumeState(refreshKey: Int = 0): State<VolumeData> {
+fun rememberVolumeState(
+    refreshKey: Int = 0,
+    enabled: Boolean = true
+): State<VolumeData> {
     val context = LocalContext.current
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
 
-    val volumeState = remember(refreshKey) {
-        mutableStateOf(
-            VolumeData(
-                mediaVolumePercentage = volumePct(audioManager, AudioManager.STREAM_MUSIC),
-                ringVolumePercentage = volumePct(audioManager, AudioManager.STREAM_RING),
-                ringerMode = audioManager.ringerMode
-            )
-        )
+    val volumeState = remember {
+        mutableStateOf(readVolumeData(audioManager))
     }
 
-    DisposableEffect(context, refreshKey) {
-        val ringerReceiver = object : BroadcastReceiver() {
+    val receiver = remember {
+        object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
-                if (intent?.action == AudioManager.RINGER_MODE_CHANGED_ACTION) {
-                    volumeState.value = volumeState.value.copy(
-                        ringerMode = audioManager.ringerMode
-                    )
+                when (intent?.action) {
+                    AudioManager.RINGER_MODE_CHANGED_ACTION -> {
+                        val mode = audioManager.ringerMode
+                        if (mode != volumeState.value.ringerMode) {
+                            volumeState.value = volumeState.value.copy(ringerMode = mode)
+                        }
+                    }
+                    ACTION_VOLUME_CHANGED -> {
+                        val stream = intent.getIntExtra(EXTRA_VOLUME_STREAM_TYPE, -1)
+                        if (stream != AudioManager.STREAM_MUSIC &&
+                            stream != AudioManager.STREAM_RING &&
+                            stream != -1
+                        ) return
+                        val next = readVolumeData(audioManager)
+                        if (next != volumeState.value) volumeState.value = next
+                    }
                 }
             }
-        }
-        context.registerReceiver(
-            ringerReceiver, IntentFilter(AudioManager.RINGER_MODE_CHANGED_ACTION)
-        )
-
-        // Narrow observer: only volume settings, not brightness/rotation/etc.
-        val volumeObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) {
-                val newMedia = volumePct(audioManager, AudioManager.STREAM_MUSIC)
-                val newRing = volumePct(audioManager, AudioManager.STREAM_RING)
-                val old = volumeState.value
-                // Skip state update if nothing actually changed — avoids recomposition.
-                if (newMedia != old.mediaVolumePercentage || newRing != old.ringVolumePercentage) {
-                    volumeState.value = old.copy(
-                        mediaVolumePercentage = newMedia,
-                        ringVolumePercentage = newRing
-                    )
-                }
-            }
-        }
-        context.contentResolver.registerContentObserver(
-            Settings.System.CONTENT_URI, true, volumeObserver
-        )
-
-        onDispose {
-            try {
-                context.unregisterReceiver(ringerReceiver)
-                context.contentResolver.unregisterContentObserver(volumeObserver)
-            } catch (_: Exception) { }
         }
     }
+
+    HudLifecycleEffect(
+        enabled = enabled,
+        refreshKey = refreshKey,
+        onStart = {
+            volumeState.value = readVolumeData(audioManager)
+            val filter = IntentFilter().apply {
+                addAction(AudioManager.RINGER_MODE_CHANGED_ACTION)
+                addAction(ACTION_VOLUME_CHANGED)
+            }
+            context.registerReceiver(receiver, filter)
+        },
+        onStop = {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (_: Exception) { }
+        },
+        onRefresh = { volumeState.value = readVolumeData(audioManager) }
+    )
 
     return volumeState
+}
+
+private fun readVolumeData(audioManager: AudioManager): VolumeData {
+    return VolumeData(
+        mediaVolumePercentage = volumePct(audioManager, AudioManager.STREAM_MUSIC),
+        ringVolumePercentage = volumePct(audioManager, AudioManager.STREAM_RING),
+        ringerMode = audioManager.ringerMode
+    )
 }
 
 private fun volumePct(audioManager: AudioManager, streamType: Int): Int {

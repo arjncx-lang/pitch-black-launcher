@@ -11,8 +11,8 @@ android {
         applicationId = "com.lightest.launcher"
         minSdk = 24
         targetSdk = 37          // Upgraded: unlocks latest ART optimizations
-        versionCode = 9
-        versionName = "1.8.1"
+        versionCode = 11
+        versionName = "1.8.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -76,6 +76,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     // ART profile install — faster warm starts after first launch (cloud/local profiles)
     implementation(libs.androidx.profileinstaller)
     testImplementation(libs.junit)

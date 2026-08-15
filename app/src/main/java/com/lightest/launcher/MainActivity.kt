@@ -1,10 +1,8 @@
 package com.lightest.launcher
 
-import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
@@ -68,7 +66,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateMap
+
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -99,6 +97,7 @@ import com.lightest.launcher.ui.theme.LauncherTheme
 import com.lightest.launcher.ui.theme.LauncherColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -139,7 +138,7 @@ fun PitchBlackLauncherScreen() {
     val scope = rememberCoroutineScope()
 
     var installedApps by remember { mutableStateOf<List<AppItem>>(emptyList()) }
-    val iconMap: SnapshotStateMap<String, IconEntry> = remember { mutableStateOf<SnapshotStateMap<String, IconEntry>>(mutableStateMapOf()) }.value
+    val iconMap = remember { mutableStateMapOf<String, IconEntry>() }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchVisible by remember { mutableStateOf(false) }
     var selectedAppForDialog by remember { mutableStateOf<AppItem?>(null) }
@@ -148,10 +147,13 @@ fun PitchBlackLauncherScreen() {
     var selectedAppToSwap by remember { mutableStateOf<AppItem?>(null) }
     var isSettingsOpen by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableIntStateOf(0) }
+    var isRefreshingApps by remember { mutableStateOf(false) }
 
     val iconLoadJob = remember { arrayOfNulls<Job>(1) }
+    val listReloadJob = remember { arrayOfNulls<Job>(1) }
 
     fun startIconLoad(apps: List<AppItem>) {
+        if (apps.isEmpty()) return
         iconLoadJob[0]?.cancel()
         iconLoadJob[0] = scope.launch {
             LauncherRepository.loadIcons(context, apps) { key, entry ->
@@ -160,22 +162,54 @@ fun PitchBlackLauncherScreen() {
         }
     }
 
-    fun reloadAll() {
+    fun evictPackageIcons(packageName: String) {
+        IconCache.removeMemoryByPackage(packageName)
+        val prefix = "$packageName|"
+        iconMap.keys.filter { it.startsWith(prefix) }.forEach { iconMap.remove(it) }
+    }
+
+    fun applyAppList(apps: List<AppItem>) {
+        installedApps = apps
+        isLoading = false
+        val valid = apps.mapTo(HashSet(apps.size)) { it.stableKey }
+        iconMap.keys.filter { it !in valid }.forEach { iconMap.remove(it) }
+        startIconLoad(apps.filter { it.stableKey !in iconMap })
+    }
+
+    fun refreshAppsManually() {
+        if (isRefreshingApps) return
+        listReloadJob[0]?.cancel()
+        isRefreshingApps = true
         scope.launch {
+            try {
+                IconCache.clearMemory()
+                iconMap.clear()
+                val apps = withContext(Dispatchers.IO) {
+                    LauncherRepository.getInstalledApps(context)
+                }
+                installedApps = apps
+                isLoading = false
+                startIconLoad(apps)
+            } finally {
+                isRefreshingApps = false
+            }
+        }
+    }
+
+    fun scheduleAppListReload() {
+        listReloadJob[0]?.cancel()
+        listReloadJob[0] = scope.launch {
+            delay(300)
             val apps = withContext(Dispatchers.IO) {
                 LauncherRepository.getInstalledApps(context)
             }
-            installedApps = apps
-            isLoading = false
-            val valid = apps.mapTo(HashSet(apps.size)) { it.stableKey }
-            val stale = iconMap.keys.filter { it !in valid }
-            stale.forEach { iconMap.remove(it) }
-            startIconLoad(apps)
+            applyAppList(apps)
         }
     }
 
     // Intercept back presses so Android never re-delivers the HOME intent
     // (which causes the launcher slide-in animation bug on spam-back).
+    // Idle Back is a HUD poke only — charger check without a full app rescan.
     BackHandler(enabled = true) {
         when {
             isSettingsOpen -> isSettingsOpen = false
@@ -187,11 +221,7 @@ fun PitchBlackLauncherScreen() {
                 isEditMode = false
                 selectedAppToSwap = null
             }
-            // On idle home screen: refresh the app list and HUD stats
-            else -> {
-                reloadAll()
-                refreshKey++
-            }
+            else -> refreshKey++
         }
     }
 
@@ -208,30 +238,48 @@ fun PitchBlackLauncherScreen() {
         val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
         val callback = object : android.content.pm.LauncherApps.Callback() {
             override fun onPackageAdded(packageName: String, user: android.os.UserHandle) {
-                reloadAll()
+                scheduleAppListReload()
             }
             override fun onPackageChanged(packageName: String, user: android.os.UserHandle) {
-                reloadAll()
+                evictPackageIcons(packageName)
+                scheduleAppListReload()
             }
             override fun onPackageRemoved(packageName: String, user: android.os.UserHandle) {
-                reloadAll()
+                installedApps = installedApps.filterNot {
+                    it.packageName == packageName && it.userHandle == user
+                }
+                evictPackageIcons(packageName)
+                scheduleAppListReload()
             }
-            override fun onPackagesAvailable(packageNames: Array<out String>, user: android.os.UserHandle, replacing: Boolean) {
-                reloadAll()
+            override fun onPackagesAvailable(
+                packageNames: Array<out String>,
+                user: android.os.UserHandle,
+                replacing: Boolean
+            ) {
+                if (replacing) packageNames.forEach { evictPackageIcons(it) }
+                scheduleAppListReload()
             }
-            override fun onPackagesUnavailable(packageNames: Array<out String>, user: android.os.UserHandle, replacing: Boolean) {
-                if (!replacing) reloadAll()
+            override fun onPackagesUnavailable(
+                packageNames: Array<out String>,
+                user: android.os.UserHandle,
+                replacing: Boolean
+            ) {
+                if (!replacing) {
+                    packageNames.forEach { evictPackageIcons(it) }
+                    scheduleAppListReload()
+                }
             }
             override fun onPackagesSuspended(packageNames: Array<out String>, user: android.os.UserHandle) {
-                reloadAll()
+                scheduleAppListReload()
             }
             override fun onPackagesUnsuspended(packageNames: Array<out String>, user: android.os.UserHandle) {
-                reloadAll()
+                scheduleAppListReload()
             }
         }
         launcherApps.registerCallback(callback)
         onDispose {
             iconLoadJob[0]?.cancel()
+            listReloadJob[0]?.cancel()
             launcherApps.unregisterCallback(callback)
         }
     }
@@ -251,19 +299,6 @@ fun PitchBlackLauncherScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onVerticalDrag = { change, dragAmount ->
-                        change.consume()
-                        if (dragAmount < -15) { 
-                            isSearchVisible = true
-                        } else if (dragAmount > 15) {
-                            isSearchVisible = false
-                            searchQuery = ""
-                        }
-                    }
-                )
-            }
     ) {
         if (isSettingsOpen) {
             SettingsScreen(
@@ -291,7 +326,14 @@ fun PitchBlackLauncherScreen() {
                     selectedAppToSwap = null
                     isSearchVisible = false
                 },
-                refreshKey = refreshKey
+                refreshKey = refreshKey,
+                onSwipeOpenSearch = { isSearchVisible = true },
+                onSwipeCloseSearch = {
+                    isSearchVisible = false
+                    searchQuery = ""
+                },
+                onRefreshApps = { refreshAppsManually() },
+                isRefreshingApps = isRefreshingApps
             )
 
             AnimatedVisibility(visible = isEditMode) {
@@ -370,38 +412,43 @@ fun PitchBlackLauncherScreen() {
                 val pages = if (showWorkApps && workApps.isNotEmpty()) 2 else 1
                 val pagerState = rememberPagerState(pageCount = { pages })
 
-                val handleAppClick: (AppItem) -> Unit = { it ->
-                    if (isEditMode) {
-                        if (selectedAppToSwap == null) {
-                            selectedAppToSwap = it
-                        } else {
-                            val mutableList = installedApps.toMutableList()
-                            val idx1 = mutableList.indexOf(selectedAppToSwap)
-                            val idx2 = mutableList.indexOf(it)
-                            if (idx1 != -1 && idx2 != -1) {
-                                val temp = mutableList[idx1]
-                                mutableList[idx1] = mutableList[idx2]
-                                mutableList[idx2] = temp
-                                installedApps = mutableList
-                                scope.launch(Dispatchers.IO) {
-                                    LauncherRepository.saveAppOrder(context, mutableList)
+                val highlightedKey = selectedAppToSwap?.stableKey
+                val handleAppClick = remember(isEditMode, highlightedKey, installedApps) {
+                    { app: AppItem ->
+                        if (isEditMode) {
+                            if (highlightedKey == null) {
+                                selectedAppToSwap = app
+                            } else {
+                                val mutableList = installedApps.toMutableList()
+                                val idx1 = mutableList.indexOfFirst { it.stableKey == highlightedKey }
+                                val idx2 = mutableList.indexOfFirst { it.stableKey == app.stableKey }
+                                if (idx1 != -1 && idx2 != -1) {
+                                    val temp = mutableList[idx1]
+                                    mutableList[idx1] = mutableList[idx2]
+                                    mutableList[idx2] = temp
+                                    installedApps = mutableList
+                                    scope.launch(Dispatchers.IO) {
+                                        LauncherRepository.saveAppOrder(context, mutableList)
+                                    }
                                 }
+                                selectedAppToSwap = null
                             }
-                            selectedAppToSwap = null
-                        }
-                    } else {
-                        if (it.packageName == context.packageName) {
-                            isSettingsOpen = true
                         } else {
-                            launchApp(context, it)
+                            if (app.packageName == context.packageName) {
+                                isSettingsOpen = true
+                            } else {
+                                launchApp(context, app)
+                            }
+                            isSearchVisible = false
+                            searchQuery = ""
                         }
-                        isSearchVisible = false
-                        searchQuery = ""
                     }
                 }
 
-                val handleAppLongClick: (AppItem) -> Unit = { it ->
-                    if (!isEditMode) selectedAppForDialog = it
+                val handleAppLongClick = remember(isEditMode) {
+                    { app: AppItem ->
+                        if (!isEditMode) selectedAppForDialog = app
+                    }
                 }
 
                 Column(modifier = Modifier.fillMaxSize()) {
@@ -413,7 +460,7 @@ fun PitchBlackLauncherScreen() {
                             AppGrid(
                                 apps = regularApps,
                                 iconMap = iconMap,
-                                isHighlighted = { it.stableKey == selectedAppToSwap?.stableKey },
+                                highlightedKey = highlightedKey,
                                 onAppClick = handleAppClick,
                                 onAppLongClick = handleAppLongClick
                             )
@@ -431,7 +478,7 @@ fun PitchBlackLauncherScreen() {
                                 AppGrid(
                                     apps = workApps,
                                     iconMap = iconMap,
-                                    isHighlighted = { it.stableKey == selectedAppToSwap?.stableKey },
+                                    highlightedKey = highlightedKey,
                                     onAppClick = handleAppClick,
                                     onAppLongClick = handleAppLongClick
                                 )
@@ -486,7 +533,7 @@ fun PitchBlackLauncherScreen() {
 fun AppGrid(
     apps: List<AppItem>,
     iconMap: Map<String, IconEntry>,
-    isHighlighted: (AppItem) -> Boolean,
+    highlightedKey: String?,
     onAppClick: (AppItem) -> Unit,
     onAppLongClick: (AppItem) -> Unit
 ) {
@@ -509,7 +556,7 @@ fun AppGrid(
             AppCard(
                 app = app,
                 iconEntry = iconEntry,
-                isHighlighted = isHighlighted(app),
+                isHighlighted = app.stableKey == highlightedKey,
                 onAppClick = { onAppClick(app) },
                 onAppLongClick = { onAppLongClick(app) }
             )
@@ -527,14 +574,29 @@ fun CenteredMinimalHeader(
     onToggleSearch: () -> Unit,
     isEditMode: Boolean,
     onToggleEditMode: () -> Unit,
-    refreshKey: Int = 0
+    refreshKey: Int = 0,
+    onSwipeOpenSearch: () -> Unit = {},
+    onSwipeCloseSearch: () -> Unit = {},
+    onRefreshApps: () -> Unit = {},
+    isRefreshingApps: Boolean = false
 ) {
     val hud by SettingsPrefs.hudSettingsFlow.collectAsState(initial = HudSettings())
 
-    val timeData by rememberTimeAndDate(refreshKey)
-    val batteryData by rememberBatteryState(refreshKey)
-    val volumeData by rememberVolumeState(refreshKey)
-    val systemStats by rememberSystemStats(refreshKey)
+    val watchTime = hud.showTime || hud.showDate || hud.showUptime
+    val watchBattery = hud.showBatteryBar || hud.showBatteryPercent || hud.showVoltage ||
+        hud.showDeviceTemp || hud.showBatteryTemp || hud.showThermal ||
+        hud.showHealth || hud.showCurrent
+    val watchVolume = hud.showMediaVolume || hud.showRingVolume
+    val watchStats = hud.showMemory || hud.showStorage || hud.showRefreshRate
+
+    val timeData by rememberTimeAndDate(refreshKey, enabled = watchTime)
+    val batteryData by rememberBatteryState(
+        refreshKey,
+        enabled = watchBattery,
+        requestDeviceTemp = hud.showDeviceTemp
+    )
+    val volumeData by rememberVolumeState(refreshKey, enabled = watchVolume)
+    val systemStats by rememberSystemStats(refreshKey, enabled = watchStats)
 
     val time12 = timeData.time12
     val amPm = timeData.amPm
@@ -622,7 +684,18 @@ fun CenteredMinimalHeader(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerInput(Unit) {
+                detectVerticalDragGestures { change, dragAmount ->
+                    change.consume()
+                    if (dragAmount < -15) {
+                        onSwipeOpenSearch()
+                    } else if (dragAmount > 15) {
+                        onSwipeCloseSearch()
+                    }
+                }
+            }
     ) {
         if (hud.showTime || hud.showDate) {
             Row(
@@ -724,7 +797,10 @@ fun CenteredMinimalHeader(
         }
 
         // Metrics grid — "Label : value" with per-item status colors
-        val showAnyMetric = hud.showDeviceTemp || hud.showBatteryTemp || hud.showVoltage || hud.showThermal || hud.showMemory || hud.showStorage || hud.showRingVolume || hud.showMediaVolume || hud.showRefreshRate || hud.showUptime
+        val showAnyMetric = hud.showDeviceTemp || hud.showBatteryTemp || hud.showVoltage ||
+            hud.showThermal || hud.showMemory || hud.showStorage || hud.showRingVolume ||
+            hud.showMediaVolume || hud.showRefreshRate || hud.showUptime ||
+            hud.showHealth || hud.showCurrent
         if (showAnyMetric) {
             FlowRow(
                 modifier = Modifier
@@ -757,29 +833,25 @@ fun CenteredMinimalHeader(
                     emphasize = voltageColor != LauncherColors.Green
                 )
             }
-            // Health and current are implicitly hidden unless we want toggles. I'll tie them to BatteryTemp for now, or just leave them out if not requested?
-            // The user didn't ask for them specifically. Let's hide them if BatteryTemp is hidden to save space, or just leave them since they aren't toggled.
-            // Wait, they asked for "disable any thing seprately". Let's wrap them in hud.showBatteryTemp or showBatteryPercent to save clutter.
-            
-            if (hud.showBatteryPercent) {
+            if (hud.showHealth) {
                 HudMetric(
                     label = "Health",
                     value = healthLabel,
                     color = healthColor,
                     emphasize = healthColor == LauncherColors.Red
                 )
-                if (currentMa != null) {
-                    HudMetric(
-                        label = if (isCharging) "Charging" else "Current",
-                        value = if (isCharging) {
-                            "${kotlin.math.abs(currentMa)} mA"
-                        } else {
-                            "$currentMa mA"
-                        },
-                        color = currentColor,
-                        emphasize = isCharging
-                    )
-                }
+            }
+            if (hud.showCurrent && currentMa != null) {
+                HudMetric(
+                    label = if (isCharging) "Charging" else "Current",
+                    value = if (isCharging) {
+                        "${kotlin.math.abs(currentMa)} mA"
+                    } else {
+                        "$currentMa mA"
+                    },
+                    color = currentColor,
+                    emphasize = isCharging
+                )
             }
 
             if (hud.showThermal) {
@@ -852,6 +924,19 @@ fun CenteredMinimalHeader(
                     painter = painterResource(id = R.drawable.ic_search),
                     contentDescription = "Search",
                     tint = if (isSearchOpen) LauncherColors.Green else Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            IconButton(
+                onClick = onRefreshApps,
+                enabled = !isRefreshingApps,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_refresh),
+                    contentDescription = "Refresh apps",
+                    tint = if (isRefreshingApps) LauncherColors.Green else Color.White,
                     modifier = Modifier.size(20.dp)
                 )
             }

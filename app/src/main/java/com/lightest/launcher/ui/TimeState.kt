@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.SystemClock
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
@@ -28,29 +27,40 @@ data class TimeData(
 )
 
 @Composable
-fun rememberTimeAndDate(refreshKey: Int = 0): State<TimeData> {
+fun rememberTimeAndDate(
+    refreshKey: Int = 0,
+    enabled: Boolean = true
+): State<TimeData> {
     val context = LocalContext.current
     val timeState = remember { mutableStateOf(getTimeData()) }
 
-    DisposableEffect(context, refreshKey) {
-        val receiver = object : BroadcastReceiver() {
+    val receiver = remember {
+        object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 timeState.value = getTimeData()
             }
         }
-        val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_TIME_TICK)
-            addAction(Intent.ACTION_TIME_CHANGED)
-            addAction(Intent.ACTION_TIMEZONE_CHANGED)
-        }
-        context.registerReceiver(receiver, filter)
+    }
 
-        onDispose {
+    HudLifecycleEffect(
+        enabled = enabled,
+        refreshKey = refreshKey,
+        onStart = {
+            timeState.value = getTimeData()
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_TIME_TICK)
+                addAction(Intent.ACTION_TIME_CHANGED)
+                addAction(Intent.ACTION_TIMEZONE_CHANGED)
+            }
+            context.registerReceiver(receiver, filter)
+        },
+        onStop = {
             try {
                 context.unregisterReceiver(receiver)
             } catch (_: Exception) { }
-        }
-    }
+        },
+        onRefresh = { timeState.value = getTimeData() }
+    )
 
     return timeState
 }
@@ -71,12 +81,11 @@ private fun getTimeData(): TimeData {
         dateTextFormat = SimpleDateFormat("MMM d, yyyy", locale)
         weekdayFormat = SimpleDateFormat("EEE", locale)
     }
-    
+
     val now = Calendar.getInstance().time
     return TimeData(
         time12 = time12Format!!.format(now),
         amPm = amPmFormat!!.format(now),
-        // Compact date for single-line header.
         dateText = dateTextFormat!!.format(now),
         weekday = weekdayFormat!!.format(now),
         uptimeText = formatUptime(SystemClock.elapsedRealtime())

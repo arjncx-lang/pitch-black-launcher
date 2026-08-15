@@ -8,7 +8,6 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
@@ -108,84 +107,154 @@ fun thermalStatusToLabel(status: Int): String = when (status) {
 /**
  * Passive battery + temperature + health state.
  *
- * Zero polling: updates only on [Intent.ACTION_BATTERY_CHANGED] and
- * (API 29+) thermal status callbacks. Device °C is one-shot + 30s cache.
+ * Listeners are registered only while the launcher is RESUMED.
+ * Device °C is one-shot + 30s cache, forced on Back / resume.
  */
 @Composable
-fun rememberBatteryState(refreshKey: Int = 0): State<BatteryData> {
+fun rememberBatteryState(
+    refreshKey: Int = 0,
+    enabled: Boolean = true,
+    requestDeviceTemp: Boolean = true
+): State<BatteryData> {
     val context = LocalContext.current
     val batteryState = remember { mutableStateOf(BatteryData()) }
 
-    DisposableEffect(context, refreshKey) {
-        val appContext = context.applicationContext
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    val appContext = context.applicationContext
+    val powerManager = remember {
+        context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    }
 
-        fun currentThermalLabel(): String {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || powerManager == null) return "OK"
-            return try {
-                thermalStatusToLabel(powerManager.currentThermalStatus)
-            } catch (_: Throwable) {
-                "OK"
-            }
-        }
+    val requestTempHolder = remember { booleanArrayOf(requestDeviceTemp) }
+    requestTempHolder[0] = requestDeviceTemp
 
-        fun applyBatteryIntent(intent: Intent) {
-            val pendingDevice = DeviceTemperature.lastCelsius()
-            val thermal = currentThermalLabel()
-            batteryState.value = intent.toBatteryData(appContext, pendingDevice, thermal)
-
-            DeviceTemperature.request(appContext) { deviceTemp ->
-                val prev = batteryState.value
-                if (prev.deviceTemperatureCelsius != deviceTemp) {
-                    batteryState.value = prev.copy(deviceTemperatureCelsius = deviceTemp)
+    val receiver = remember {
+        object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent != null) {
+                    applyBatteryIntent(
+                        appContext, powerManager, batteryState, intent,
+                        requestTempHolder[0], forceDeviceTemp = false
+                    )
                 }
             }
         }
+    }
 
-        fun refreshThermalAndDevice() {
+    val thermalListener = remember {
+        arrayOfNulls<PowerManager.OnThermalStatusChangedListener>(1)
+    }
+
+    fun currentThermalLabel(): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || powerManager == null) return "OK"
+        return try {
+            thermalStatusToLabel(powerManager.currentThermalStatus)
+        } catch (_: Throwable) {
+            "OK"
+        }
+    }
+
+    fun refreshNow(forceDeviceTemp: Boolean) {
+        val sticky = IntentFilter(Intent.ACTION_BATTERY_CHANGED).let { filter ->
+            // Peek sticky without registering a second receiver.
+            context.registerReceiver(null, filter)
+        }
+        if (sticky != null) {
+            applyBatteryIntent(
+                appContext, powerManager, batteryState, sticky,
+                requestDeviceTemp, forceDeviceTemp
+            )
+        } else {
             val thermal = currentThermalLabel()
             val prev = batteryState.value
             if (prev.thermalLabel != thermal) {
                 batteryState.value = prev.copy(thermalLabel = thermal)
             }
-            DeviceTemperature.request(appContext) { deviceTemp ->
-                val p = batteryState.value
-                if (p.deviceTemperatureCelsius != deviceTemp) {
-                    batteryState.value = p.copy(deviceTemperatureCelsius = deviceTemp)
+            if (requestDeviceTemp) {
+                DeviceTemperature.request(appContext, force = forceDeviceTemp) { deviceTemp ->
+                    val p = batteryState.value
+                    if (p.deviceTemperatureCelsius != deviceTemp) {
+                        batteryState.value = p.copy(deviceTemperatureCelsius = deviceTemp)
+                    }
                 }
-            }
-        }
-
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context?, intent: Intent?) {
-                if (intent != null) applyBatteryIntent(intent)
-            }
-        }
-
-        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        val stickyIntent = context.registerReceiver(receiver, filter)
-        if (stickyIntent != null) applyBatteryIntent(stickyIntent)
-
-        var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null) {
-            val listener = PowerManager.OnThermalStatusChangedListener {
-                refreshThermalAndDevice()
-            }
-            thermalListener = listener
-            powerManager.addThermalStatusListener(context.mainExecutor, listener)
-        }
-
-        onDispose {
-            try {
-                context.unregisterReceiver(receiver)
-            } catch (_: Exception) { }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && thermalListener != null) {
-                try {
-                    powerManager?.removeThermalStatusListener(thermalListener)
-                } catch (_: Exception) { }
             }
         }
     }
 
+    HudLifecycleEffect(
+        enabled = enabled,
+        refreshKey = refreshKey,
+        onStart = {
+            val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            val stickyIntent = context.registerReceiver(receiver, filter)
+            if (stickyIntent != null) {
+                applyBatteryIntent(
+                    appContext, powerManager, batteryState, stickyIntent,
+                    requestDeviceTemp, forceDeviceTemp = true
+                )
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null) {
+                val listener = PowerManager.OnThermalStatusChangedListener {
+                    val thermal = currentThermalLabel()
+                    val prev = batteryState.value
+                    if (prev.thermalLabel != thermal) {
+                        batteryState.value = prev.copy(thermalLabel = thermal)
+                    }
+                    if (requestDeviceTemp) {
+                        DeviceTemperature.request(appContext, force = false) { deviceTemp ->
+                            val p = batteryState.value
+                            if (p.deviceTemperatureCelsius != deviceTemp) {
+                                batteryState.value = p.copy(deviceTemperatureCelsius = deviceTemp)
+                            }
+                        }
+                    }
+                }
+                thermalListener[0] = listener
+                powerManager.addThermalStatusListener(context.mainExecutor, listener)
+            }
+        },
+        onStop = {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (_: Exception) { }
+            val listener = thermalListener[0]
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && listener != null) {
+                try {
+                    powerManager?.removeThermalStatusListener(listener)
+                } catch (_: Exception) { }
+                thermalListener[0] = null
+            }
+        },
+        onRefresh = { refreshNow(forceDeviceTemp = true) }
+    )
+
     return batteryState
+}
+
+private fun applyBatteryIntent(
+    appContext: Context,
+    powerManager: PowerManager?,
+    batteryState: androidx.compose.runtime.MutableState<BatteryData>,
+    intent: Intent,
+    requestDeviceTemp: Boolean,
+    forceDeviceTemp: Boolean
+) {
+    val thermal = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || powerManager == null) {
+        "OK"
+    } else {
+        try {
+            thermalStatusToLabel(powerManager.currentThermalStatus)
+        } catch (_: Throwable) {
+            "OK"
+        }
+    }
+    val pendingDevice = DeviceTemperature.lastCelsius()
+    batteryState.value = intent.toBatteryData(appContext, pendingDevice, thermal)
+
+    if (!requestDeviceTemp) return
+    DeviceTemperature.request(appContext, force = forceDeviceTemp) { deviceTemp ->
+        val prev = batteryState.value
+        if (prev.deviceTemperatureCelsius != deviceTemp) {
+            batteryState.value = prev.copy(deviceTemperatureCelsius = deviceTemp)
+        }
+    }
 }
