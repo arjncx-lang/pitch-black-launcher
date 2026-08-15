@@ -133,55 +133,67 @@ object LauncherRepository {
         val semaphore = Semaphore(ICON_PARALLELISM)
         val updateTimes = ConcurrentHashMap<String, Long>(apps.size)
 
-        // Instant memory hits (after process was warm or prior load this session).
+        val memoryHits = ArrayList<Pair<String, IconEntry>>(apps.size)
+        val pending = ArrayList<AppItem>(apps.size)
         for (app in apps) {
             coroutineContext.ensureActive()
             val mem = IconCache.getMemory(app.stableKey)
             if (mem != null) {
-                withContext(Dispatchers.Main.immediate) {
-                    onIcon(app.stableKey, mem)
+                memoryHits.add(app.stableKey to mem)
+            } else {
+                pending.add(app)
+            }
+        }
+        if (memoryHits.isNotEmpty()) {
+            withContext(Dispatchers.Main.immediate) {
+                for (i in memoryHits.indices) {
+                    val hit = memoryHits[i]
+                    onIcon(hit.first, hit.second)
                 }
             }
         }
 
-        coroutineScope {
-            apps.map { app ->
-                async(Dispatchers.IO) {
-                    semaphore.withPermit {
-                        coroutineContext.ensureActive()
+        if (pending.isNotEmpty()) {
+            coroutineScope {
+                pending.map { app ->
+                    async(Dispatchers.IO) {
+                        semaphore.withPermit {
+                            coroutineContext.ensureActive()
 
-                        val lastUpdate = packageLastUpdate(pm, app.packageName)
-                        updateTimes[app.stableKey] = lastUpdate
+                            IconCache.getMemory(app.stableKey)?.let { return@withPermit }
 
-                        // Already in memory (delivered above, or raced from another load).
-                        IconCache.getMemory(app.stableKey)?.let { return@withPermit }
+                            val lastUpdate = packageLastUpdate(pm, app.packageName)
+                            updateTimes[app.stableKey] = lastUpdate
 
-                        val disk = IconCache.getDisk(appContext, app.stableKey, lastUpdate)
-                        if (disk != null) {
-                            IconCache.putMemory(app.stableKey, disk)
-                            withContext(Dispatchers.Main.immediate) {
-                                onIcon(app.stableKey, disk)
+                            val disk = IconCache.getDisk(appContext, app.stableKey, lastUpdate)
+                            if (disk != null) {
+                                IconCache.putMemory(app.stableKey, disk)
+                                withContext(Dispatchers.Main.immediate) {
+                                    onIcon(app.stableKey, disk)
+                                }
+                                return@withPermit
                             }
-                            return@withPermit
-                        }
 
-                        val entry = decodeIcon(
-                            app, appContext, pm, launcherApps, densityDpi, iconSizePx
-                        ) ?: return@withPermit
+                            val entry = decodeIcon(
+                                app, pm, launcherApps, densityDpi, iconSizePx
+                            ) ?: return@withPermit
 
-                        IconCache.putMemory(app.stableKey, entry)
-                        IconCache.putDisk(appContext, app.stableKey, lastUpdate, entry)
-                        withContext(Dispatchers.Main.immediate) {
-                            onIcon(app.stableKey, entry)
+                            IconCache.putMemory(app.stableKey, entry)
+                            IconCache.putDisk(appContext, app.stableKey, lastUpdate, entry)
+                            withContext(Dispatchers.Main.immediate) {
+                                onIcon(app.stableKey, entry)
+                            }
                         }
                     }
-                }
-            }.awaitAll()
+                }.awaitAll()
+            }
         }
 
         withContext(Dispatchers.IO) {
-            if (updateTimes.isNotEmpty()) {
+            if (updateTimes.size == apps.size) {
                 IconCache.pruneOrphans(appContext, updateTimes)
+            } else {
+                IconCache.pruneUninstalled(appContext, apps.map { it.stableKey })
             }
         }
     }
@@ -201,7 +213,6 @@ object LauncherRepository {
 
     private fun decodeIcon(
         app: AppItem,
-        context: Context,
         pm: PackageManager,
         launcherApps: LauncherApps,
         densityDpi: Int,
@@ -209,13 +220,17 @@ object LauncherRepository {
     ): IconEntry? {
         return try {
             var isAdaptive = false
-            val activityInfo = app.userHandle?.let { uh ->
-                launcherApps.getActivityList(app.packageName, uh)
-                    .firstOrNull { it.componentName.className == app.className }
-            }
+            val component = ComponentName(app.packageName, app.className)
+            // Work profile: must go through LauncherApps. Personal: one getActivityIcon.
             val base = try {
-                activityInfo?.getIcon(densityDpi)
-                    ?: pm.getActivityIcon(ComponentName(app.packageName, app.className))
+                if (app.isWorkProfile && app.userHandle != null) {
+                    launcherApps.getActivityList(app.packageName, app.userHandle)
+                        .firstOrNull { it.componentName.className == app.className }
+                        ?.getIcon(densityDpi)
+                        ?: pm.getActivityIcon(component)
+                } else {
+                    pm.getActivityIcon(component)
+                }
             } catch (_: Exception) {
                 pm.defaultActivityIcon
             }
@@ -234,8 +249,11 @@ object LauncherRepository {
                 base
             }
 
-            val soft = drawable.toBitmap(iconSizePx, iconSizePx, Bitmap.Config.ARGB_8888)
-            IconEntry(IconCache.toGpu(soft), isAdaptive)
+            var soft = drawable.toBitmap(iconSizePx, iconSizePx, Bitmap.Config.ARGB_8888)
+            if (isAdaptive) {
+                soft = IconCache.cropAdaptiveSafeZone(soft)
+            }
+            IconEntry(IconCache.toGpu(soft), isAdaptive = false)
         } catch (_: Exception) {
             null
         }
@@ -292,5 +310,48 @@ object LauncherRepository {
         if (substring.isEmpty()) return prefix
         if (prefix.isEmpty()) return substring
         return prefix.apply { addAll(substring) }
+    }
+
+    /**
+     * One pass: drop hidden, match search (prefix then substring), split personal/work.
+     * Preserves [apps] order within each rank bucket.
+     */
+    fun partitionVisible(
+        apps: List<AppItem>,
+        hidden: Set<String>,
+        rawQuery: String,
+        includeWork: Boolean
+    ): Pair<List<AppItem>, List<AppItem>> {
+        val q = when {
+            rawQuery.isEmpty() -> ""
+            rawQuery == rawQuery.lowercase() -> rawQuery
+            else -> rawQuery.lowercase()
+        }
+        val regularPrefix = ArrayList<AppItem>()
+        val regularSub = ArrayList<AppItem>()
+        val workPrefix = ArrayList<AppItem>()
+        val workSub = ArrayList<AppItem>()
+
+        for (app in apps) {
+            if (hidden.isNotEmpty() && app.stableKey in hidden) continue
+            if (app.isWorkProfile && !includeWork) continue
+
+            if (q.isNotEmpty()) {
+                val label = app.labelLower
+                val pkg = app.packageName
+                when {
+                    label.startsWith(q) || pkg.startsWith(q) -> { /* prefix */ }
+                    label.contains(q) || pkg.contains(q) -> {
+                        if (app.isWorkProfile) workSub.add(app) else regularSub.add(app)
+                        continue
+                    }
+                    else -> continue
+                }
+            }
+            if (app.isWorkProfile) workPrefix.add(app) else regularPrefix.add(app)
+        }
+        if (regularSub.isNotEmpty()) regularPrefix.addAll(regularSub)
+        if (workSub.isNotEmpty()) workPrefix.addAll(workSub)
+        return regularPrefix to workPrefix
     }
 }

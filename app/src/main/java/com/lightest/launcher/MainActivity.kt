@@ -288,11 +288,9 @@ fun PitchBlackLauncherScreen() {
     val hiddenApps by SettingsPrefs.hiddenAppsFlow.collectAsState(initial = emptySet())
 
     val (regularApps, workApps) = remember(searchQuery, installedApps, showWorkApps, hiddenApps) {
-        val nonHidden = installedApps.filter { it.stableKey !in hiddenApps }
-        val filtered = LauncherRepository.filterApps(nonHidden, searchQuery)
-        val regular = filtered.filter { !it.isWorkProfile }
-        val work = filtered.filter { it.isWorkProfile }
-        regular to work
+        LauncherRepository.partitionVisible(
+            installedApps, hiddenApps, searchQuery, showWorkApps
+        )
     }
 
     Box(

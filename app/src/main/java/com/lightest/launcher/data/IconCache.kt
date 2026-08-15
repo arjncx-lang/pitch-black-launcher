@@ -21,10 +21,10 @@ import kotlin.concurrent.write
  *  2. Disk WebP under cacheDir — survives process death; invalidated via lastUpdateTime
  *
  * Disk files: `{hash(stableKey)}_{lastUpdateTime}.webp`
- * Adaptive flag: sibling `{same}.webp.adaptive` marker file
+ * v4 bitmaps have adaptive padding baked in (no per-frame 1.5x scale).
  */
 object IconCache {
-    private const val DIR_NAME = "app_icons_v3"
+    private const val DIR_NAME = "app_icons_v4"
     /** Use 1/8 of available heap for icon memory cache. */
     private val MAX_MEMORY_BYTES: Int = (Runtime.getRuntime().maxMemory() / 8).toInt()
 
@@ -37,18 +37,27 @@ object IconCache {
         }
     }
 
-    private fun dir(context: Context): File =
-        File(context.cacheDir, DIR_NAME).also { if (!it.exists()) it.mkdirs() }
+    @Volatile private var droppedLegacyCache = false
+
+    private fun dir(context: Context): File {
+        if (!droppedLegacyCache) {
+            droppedLegacyCache = true
+            File(context.cacheDir, "app_icons_v3").deleteRecursively()
+        }
+        return File(context.cacheDir, DIR_NAME).also { if (!it.exists()) it.mkdirs() }
+    }
 
     /** Fast, non-cryptographic hash — no need for MD5 overhead. */
-    private fun fileName(stableKey: String, lastUpdateTime: Long): String {
+    private fun keyHash(stableKey: String): String {
         var h = stableKey.hashCode().toLong() and 0xFFFFFFFFL
-        // Mix bits for better distribution
         h = h xor (h ushr 16)
         h *= 0x45d9f3bL
         h = h xor (h ushr 16)
-        return "${h.toString(16)}_$lastUpdateTime.webp"
+        return h.toString(16)
     }
+
+    private fun fileName(stableKey: String, lastUpdateTime: Long): String =
+        "${keyHash(stableKey)}_$lastUpdateTime.webp"
 
     fun getMemory(stableKey: String): IconEntry? = lock.read { memory.get(stableKey) }
 
@@ -81,8 +90,7 @@ object IconCache {
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
             val soft = BitmapFactory.decodeFile(file.absolutePath, opts) ?: return null
-            val isAdaptive = File(file.absolutePath + ".adaptive").isFile
-            IconEntry(toGpu(soft), isAdaptive)
+            IconEntry(toGpu(soft), isAdaptive = false)
         } catch (_: Exception) {
             null
         }
@@ -96,7 +104,6 @@ object IconCache {
         entry: IconEntry
     ) {
         val file = File(dir(context), fileName(stableKey, lastUpdateTime))
-        val marker = File(file.absolutePath + ".adaptive")
         try {
             val androidBmp = entry.bitmap.asAndroidBitmap()
             val soft = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
@@ -114,11 +121,6 @@ object IconCache {
                     Bitmap.CompressFormat.WEBP
                 soft.compress(format, 100, out)
             }
-            if (entry.isAdaptive) {
-                if (!marker.exists()) marker.createNewFile()
-            } else if (marker.exists()) {
-                marker.delete()
-            }
             if (soft !== androidBmp) soft.recycle()
         } catch (_: Exception) {
             // Disk full — memory cache still works.
@@ -131,15 +133,38 @@ object IconCache {
      */
     fun pruneOrphans(context: Context, validKeys: Map<String, Long>) {
         val d = dir(context)
-        val validNames = HashSet<String>(validKeys.size * 2)
+        val validNames = HashSet<String>(validKeys.size)
         for ((key, t) in validKeys) {
-            val name = fileName(key, t)
-            validNames.add(name)
-            validNames.add("$name.adaptive")
+            validNames.add(fileName(key, t))
         }
         d.listFiles()?.forEach { f ->
             if (f.name !in validNames) f.delete()
         }
+    }
+
+    /** Drop disk files for apps that are no longer installed (hash prefix only). */
+    fun pruneUninstalled(context: Context, stableKeys: Collection<String>) {
+        val validHashes = HashSet<String>(stableKeys.size)
+        for (key in stableKeys) validHashes.add(keyHash(key))
+        dir(context).listFiles()?.forEach { f ->
+            val hash = f.name.substringBefore('_')
+            if (hash !in validHashes) f.delete()
+        }
+    }
+
+    /**
+     * Adaptive icons use a 108dp viewport with a 72dp safe zone (2/3).
+     * Crop the extra padding once so Compose does not scale every frame.
+     */
+    fun cropAdaptiveSafeZone(src: Bitmap): Bitmap {
+        val insetX = src.width / 6
+        val insetY = src.height / 6
+        val w = (src.width - 2 * insetX).coerceAtLeast(1)
+        val h = (src.height - 2 * insetY).coerceAtLeast(1)
+        if (insetX == 0 && insetY == 0) return src
+        val cropped = Bitmap.createBitmap(src, insetX, insetY, w, h)
+        if (cropped !== src) src.recycle()
+        return cropped
     }
 
     fun toGpu(soft: Bitmap): ImageBitmap {
