@@ -30,9 +30,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,6 +44,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -50,6 +53,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -101,6 +105,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Calendar
 
 class MainActivity : ComponentActivity() {
 
@@ -302,6 +307,7 @@ fun PitchBlackLauncherScreen() {
     }
 
     val showWorkApps by SettingsPrefs.showWorkAppsFlow.collectAsState(initial = true)
+    val whiteTheme by SettingsPrefs.whiteThemeFlow.collectAsState(initial = false)
     val hiddenApps by SettingsPrefs.hiddenAppsFlow.collectAsState(initial = emptySet())
 
     val (regularApps, workApps) = remember(searchQuery, installedApps, showWorkApps, hiddenApps) {
@@ -310,10 +316,12 @@ fun PitchBlackLauncherScreen() {
         )
     }
 
+    val screenBg = if (whiteTheme) Color(0xFFF7F7F7) else Color.Black
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(screenBg)
     ) {
         if (isSettingsOpen) {
             SettingsScreen(
@@ -399,12 +407,12 @@ fun PitchBlackLauncherScreen() {
                         singleLine = true,
                         shape = RoundedCornerShape(50),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color.Black,
-                            unfocusedContainerColor = Color.Black,
-                            focusedBorderColor = Color.White,
-                            unfocusedBorderColor = Color.DarkGray,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
+                            focusedContainerColor = if (whiteTheme) Color.White else Color.Black,
+                            unfocusedContainerColor = if (whiteTheme) Color.White else Color.Black,
+                            focusedBorderColor = if (whiteTheme) Color.Black else Color.White,
+                            unfocusedBorderColor = if (whiteTheme) Color.LightGray else Color.DarkGray,
+                            focusedTextColor = if (whiteTheme) Color.Black else Color.White,
+                            unfocusedTextColor = if (whiteTheme) Color.Black else Color.White
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -639,7 +647,9 @@ fun CenteredMinimalHeader(
     val ringVolumePct = volumeData.ringVolumePercentage
     val ringerMode = volumeData.ringerMode
 
-    val muted = Color.White.copy(alpha = 0.78f)
+    val isWhiteTheme by SettingsPrefs.whiteThemeFlow.collectAsState(initial = false)
+    val textPrimary = if (isWhiteTheme) Color(0xFF111111) else Color.White
+    val muted = if (isWhiteTheme) Color(0xFF555555) else Color.White.copy(alpha = 0.78f)
 
     // —— Status colors (green = good, orange = caution, red = bad) ——
     val voltageV = voltageMv / 1000f
@@ -725,7 +735,7 @@ fun CenteredMinimalHeader(
                         text = time12,
                         fontSize = 32.sp,
                         fontWeight = FontWeight.Light,
-                        color = Color.White,
+                        color = textPrimary,
                         letterSpacing = 0.5.sp
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -733,7 +743,7 @@ fun CenteredMinimalHeader(
                         text = amPm,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = textPrimary,
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
                 }
@@ -741,7 +751,7 @@ fun CenteredMinimalHeader(
                     Text(
                         text = "  ·  ",
                         fontSize = 14.sp,
-                        color = Color.White.copy(alpha = 0.4f),
+                        color = muted.copy(alpha = 0.5f),
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
                 }
@@ -749,7 +759,7 @@ fun CenteredMinimalHeader(
                     Text(
                         text = "$weekday, $dateText",
                         fontSize = 13.sp,
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = textPrimary,
                         fontWeight = FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -926,6 +936,19 @@ fun CenteredMinimalHeader(
         }
         } // close if (showAnyMetric)
 
+        // ── Mini Calendar ────────────────────────────────────────────────────
+        val calendarMonths by SettingsPrefs.calendarMonthsFlow.collectAsState(initial = 0)
+        val sharpEdgesForCal by SettingsPrefs.sharpEdgesFlow.collectAsState(initial = false)
+        val isWhiteThemeForCal by SettingsPrefs.whiteThemeFlow.collectAsState(initial = false)
+        if (calendarMonths > 0) {
+            Spacer(modifier = Modifier.height(6.dp))
+            MiniCalendarWidget(
+                monthCount = calendarMonths,
+                sharpEdges = sharpEdgesForCal,
+                isWhiteTheme = isWhiteThemeForCal
+            )
+        }
+
         Spacer(modifier = Modifier.height(4.dp))
 
         Row(
@@ -940,7 +963,7 @@ fun CenteredMinimalHeader(
                 Icon(
                     painter = painterResource(id = R.drawable.ic_search),
                     contentDescription = "Search",
-                    tint = if (isSearchOpen) LauncherColors.Green else Color.White,
+                    tint = if (isSearchOpen) LauncherColors.Green else textPrimary,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -953,7 +976,7 @@ fun CenteredMinimalHeader(
                 Icon(
                     painter = painterResource(id = R.drawable.ic_refresh),
                     contentDescription = "Refresh apps",
-                    tint = if (isRefreshingApps) LauncherColors.Green else Color.White,
+                    tint = if (isRefreshingApps) LauncherColors.Green else textPrimary,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -965,7 +988,7 @@ fun CenteredMinimalHeader(
                 Icon(
                     painter = painterResource(id = R.drawable.ic_lock),
                     contentDescription = "Lock screen",
-                    tint = Color.White,
+                    tint = textPrimary,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -1002,6 +1025,172 @@ private fun HudMetric(
     )
 }
 
+/** Renders 1–3 month calendar grids side by side. Respects sharpEdges and WhiteTheme. */
+@Composable
+fun MiniCalendarWidget(monthCount: Int, sharpEdges: Boolean, isWhiteTheme: Boolean = false) {
+    if (monthCount <= 0) return
+    val today = remember { Calendar.getInstance() }
+    val cardRadius = if (sharpEdges) 0.dp else 12.dp
+    val todayPillRadius = if (sharpEdges) 0.dp else 4.dp
+    val dayNames = listOf("S", "M", "T", "W", "T", "F", "S")
+    // col 0 = Sun, col 6 = Sat → red
+    val weekendCols = setOf(0, 6)
+
+    // Tightened, efficient cell sizing so inner empty space is trimmed cleanly
+    val (headerSp, dowSp, dateSp, cellHeightDp, colGapDp) = when (monthCount) {
+        1 -> Quintuple(13.sp, 11.sp, 12.sp, 22.dp, 6.dp)
+        2 -> Quintuple(11.sp, 9.sp, 10.sp, 17.dp, 6.dp)
+        else -> Quintuple(9.5.sp, 8.sp, 8.5.sp, 15.dp, 4.dp)
+    }
+
+    val months = remember(monthCount) {
+        (0 until monthCount).map { offset ->
+            val cal = Calendar.getInstance()
+            cal.add(Calendar.MONTH, offset)
+            cal
+        }
+    }
+
+    val fullMonthNames = remember {
+        java.text.DateFormatSymbols().months
+    }
+
+    val cardBg = if (isWhiteTheme) Color.White else Color(0xFF0C0E0C)
+    val cardBorder = if (isWhiteTheme) Color(0xFFE0E0E0) else Color(0xFF263E26)
+    val dividerColor = if (isWhiteTheme) Color(0xFFEEEEEE) else Color(0xFF1E281E)
+    val headerColor = if (isWhiteTheme) Color(0xFF111111) else Color.White
+    val weekdayDefaultColor = if (isWhiteTheme) Color(0xFF757575) else Color(0xFF9E9E9E)
+    val dateDefaultColor = if (isWhiteTheme) Color(0xFF212121) else Color.White
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .border(
+                width = 1.dp,
+                color = cardBorder,
+                shape = RoundedCornerShape(cardRadius)
+            )
+            .clip(RoundedCornerShape(cardRadius))
+            .background(cardBg)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(colGapDp)
+    ) {
+        months.forEachIndexed { idx, cal ->
+            if (idx > 0) {
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .fillMaxHeight()
+                        .background(dividerColor)
+                )
+            }
+            val year = cal.get(Calendar.YEAR)
+            val month = cal.get(Calendar.MONTH)
+            val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+            val firstDayOfWeek = run {
+                val tmp = Calendar.getInstance()
+                tmp.set(year, month, 1)
+                tmp.get(Calendar.DAY_OF_WEEK) - 1 // 0=Sun
+            }
+            val todayDay = if (today.get(Calendar.YEAR) == year && today.get(Calendar.MONTH) == month)
+                today.get(Calendar.DAY_OF_MONTH) else -1
+            val monthTitle = if (monthCount <= 2) {
+                "${fullMonthNames[month]} $year"
+            } else {
+                "${fullMonthNames[month].take(3)} $year"
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 1.dp)
+            ) {
+                // Month + year header
+                Text(
+                    text = monthTitle,
+                    color = headerColor,
+                    fontSize = headerSp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 3.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                // Day-of-week header
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 2.dp)
+                ) {
+                    dayNames.forEachIndexed { col, d ->
+                        Text(
+                            text = d,
+                            color = if (col in weekendCols) Color(0xFFFF5252) else weekdayDefaultColor,
+                            fontSize = dowSp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                // Day rows
+                val cells = firstDayOfWeek + daysInMonth
+                val rows = (cells + 6) / 7
+                var dayCounter = 1 - firstDayOfWeek
+                repeat(rows) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        repeat(7) { col ->
+                            val day = dayCounter++
+                            if (day in 1..daysInMonth) {
+                                val isToday = day == todayDay
+                                val isWeekend = col in weekendCols
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(cellHeightDp)
+                                        .then(
+                                            if (isToday) Modifier.background(
+                                                color = LauncherColors.Green,
+                                                shape = RoundedCornerShape(todayPillRadius)
+                                            ) else Modifier
+                                        )
+                                ) {
+                                    Text(
+                                        text = "$day",
+                                        color = when {
+                                            isToday -> Color.Black
+                                            isWeekend -> Color(0xFFFF5252)
+                                            else -> dateDefaultColor
+                                        },
+                                        fontSize = dateSp,
+                                        fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Medium,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    )
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.weight(1f).height(cellHeightDp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class Quintuple<A, B, C, D, E>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D,
+    val fifth: E
+)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppCard(
@@ -1012,6 +1201,12 @@ fun AppCard(
     onAppClick: (AppItem) -> Unit,
     onAppLongClick: (AppItem) -> Unit
 ) {
+    val sharpEdges by SettingsPrefs.sharpEdgesFlow.collectAsState()
+    val whiteTheme by SettingsPrefs.whiteThemeFlow.collectAsState()
+    val appShape = if (sharpEdges) RectangleShape else CircleShape
+    val labelColor = if (whiteTheme) Color(0xFF111111) else Color.White
+    val cardBg = if (whiteTheme) Color(0xFFE5E5E5) else LauncherColors.CardBackground
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -1026,15 +1221,15 @@ fun AppCard(
             modifier = Modifier
                 .size(48.dp)
                 .background(
-                    if (isHighlighted) LauncherColors.Green else LauncherColors.CardBackground,
-                    shape = CircleShape
+                    if (isHighlighted) LauncherColors.Green else cardBg,
+                    shape = appShape
                 )
                 .border(
                     width = if (isHighlighted) 2.dp else 0.dp,
-                    color = if (isHighlighted) Color.White else Color.Transparent,
-                    shape = CircleShape
+                    color = if (isHighlighted) (if (whiteTheme) Color.Black else Color.White) else Color.Transparent,
+                    shape = appShape
                 )
-                .clip(CircleShape),
+                .clip(appShape),
             contentAlignment = Alignment.Center
         ) {
             if (iconEntry != null) {
@@ -1061,7 +1256,7 @@ fun AppCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = app.label,
-                color = Color.White,
+                color = labelColor,
                 fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1074,7 +1269,7 @@ fun AppCard(
                 Icon(
                     painter = painterResource(id = R.drawable.ic_work),
                     contentDescription = "Work Profile",
-                    tint = Color.White,
+                    tint = labelColor,
                     modifier = Modifier.size(10.dp)
                 )
             }

@@ -1,5 +1,8 @@
 package com.lightest.launcher.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -8,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -24,6 +28,9 @@ fun SettingsScreen(
 ) {
     val hudSettings by SettingsPrefs.hudSettingsFlow.collectAsState()
     val showWorkApps by SettingsPrefs.showWorkAppsFlow.collectAsState()
+    val sharpEdges by SettingsPrefs.sharpEdgesFlow.collectAsState()
+    val whiteTheme by SettingsPrefs.whiteThemeFlow.collectAsState()
+    val calendarMonths by SettingsPrefs.calendarMonthsFlow.collectAsState()
     val hiddenApps by SettingsPrefs.hiddenAppsFlow.collectAsState()
 
     // Build a stableKey → label lookup from the full app list (includes hidden apps)
@@ -59,6 +66,14 @@ fun SettingsScreen(
                 ) {
                     Text("General", color = LauncherColors.Green, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
                     SettingsToggle("Show Work Apps", "Show work apps on a separate swipe page.", showWorkApps) { SettingsPrefs.setShowWorkApps(it) }
+                    SettingsToggle("Sharp Edges", "Square sharp edges for app icons and dialog buttons.", sharpEdges) { SettingsPrefs.setSharpEdges(it) }
+                    SettingsToggle("White Theme", "Light background with dark typography.", whiteTheme) { SettingsPrefs.setWhiteTheme(it) }
+
+                    // ── Calendar Months ──────────────────────────────────────────────
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Calendar", color = Color.Gray, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    CalendarMonthSelector(selected = calendarMonths, onSelect = { SettingsPrefs.setCalendarMonths(it) })
 
                     Text("Time & Date", color = LauncherColors.Green, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
                     SettingsToggle("Time", "Show current time.", hudSettings.showTime) { SettingsPrefs.updateHudSettings(hudSettings.copy(showTime = it)) }
@@ -183,5 +198,45 @@ fun SettingsToggle(title: String, desc: String, checked: Boolean, onCheckedChang
                 uncheckedTrackColor = Color.DarkGray
             )
         )
+    }
+}
+
+@Composable
+fun CalendarMonthSelector(selected: Int, onSelect: (Int) -> Unit) {
+    val options = listOf(
+        0 to "Off",
+        1 to "1 Month",
+        2 to "2 Months",
+        3 to "3 Months"
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        options.forEach { (value, label) ->
+            val isSelected = selected == value
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (isSelected) LauncherColors.Green else Color(0xFF2A2A2A))
+                    .border(
+                        width = if (isSelected) 0.dp else 1.dp,
+                        color = Color.DarkGray,
+                        shape = RoundedCornerShape(6.dp)
+                    )
+                    .clickable { onSelect(value) }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    color = if (isSelected) Color.Black else Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1
+                )
+            }
+        }
     }
 }

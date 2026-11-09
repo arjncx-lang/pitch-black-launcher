@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -24,6 +25,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.lightest.launcher.data.LauncherRepository
+import com.lightest.launcher.data.SettingsPrefs
 import com.lightest.launcher.model.AppItem
 import com.lightest.launcher.model.IconEntry
 import com.lightest.launcher.model.PackageDetails
@@ -58,6 +61,13 @@ fun AppDetailDialog(
     onEditLayout: () -> Unit
 ) {
     val context = LocalContext.current
+    val sharpEdges by SettingsPrefs.sharpEdgesFlow.collectAsState()
+    val whiteTheme by SettingsPrefs.whiteThemeFlow.collectAsState()
+    val buttonShape = if (sharpEdges) RectangleShape else RoundedCornerShape(50)
+    val iconShape = if (sharpEdges) RectangleShape else CircleShape
+    val dialogBg = if (whiteTheme) Color.White else Color.Black
+    val dialogText = if (whiteTheme) Color.Black else Color.White
+    val dialogBorder = if (whiteTheme) Color.Black else Color.White
     // Version/size loaded only when dialog opens — never on home-grid cold start.
     var details by remember(appItem.packageName) { mutableStateOf<PackageDetails?>(null) }
 
@@ -69,9 +79,9 @@ fun AppDetailDialog(
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = Color.Black,
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White),
+            shape = if (sharpEdges) RectangleShape else RoundedCornerShape(24.dp),
+            color = dialogBg,
+            border = androidx.compose.foundation.BorderStroke(1.dp, dialogBorder),
             modifier = Modifier.fillMaxWidth(0.95f)
         ) {
             Column(
@@ -83,8 +93,8 @@ fun AppDetailDialog(
                 Box(
                     modifier = Modifier
                         .size(72.dp)
-                        .background(LauncherColors.CardBackground, shape = CircleShape)
-                        .clip(CircleShape),
+                        .background(LauncherColors.CardBackground, shape = iconShape)
+                        .clip(iconShape),
                     contentAlignment = Alignment.Center
                 ) {
                     if (iconEntry != null) {
@@ -107,7 +117,7 @@ fun AppDetailDialog(
                     text = appItem.label,
                     style = MaterialTheme.typography.titleLarge.copy(
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = dialogText
                     ),
                     textAlign = TextAlign.Center,
                     maxLines = 2,
@@ -148,14 +158,14 @@ fun AppDetailDialog(
                     val sizeText = details?.formattedSize ?: "…"
 
                     Surface(
-                        shape = RoundedCornerShape(50),
-                        color = Color.Black,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White),
+                        shape = buttonShape,
+                        color = dialogBg,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, dialogBorder),
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
                         Text(
                             text = "Version: $versionText",
-                            color = Color.White,
+                            color = dialogText,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
@@ -163,13 +173,13 @@ fun AppDetailDialog(
                     }
 
                     Surface(
-                        shape = RoundedCornerShape(50),
-                        color = Color.Black,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White)
+                        shape = buttonShape,
+                        color = dialogBg,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, dialogBorder)
                     ) {
                         Text(
                             text = "Size: $sizeText",
-                            color = Color.White,
+                            color = dialogText,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
@@ -190,10 +200,10 @@ fun AppDetailDialog(
                         }
                         context.startActivity(intent)
                     },
-                    shape = RoundedCornerShape(50),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White),
+                    shape = buttonShape,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, dialogBorder),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Color.White
+                        contentColor = dialogText
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -209,7 +219,7 @@ fun AppDetailDialog(
                         onDismiss()
                         onEditLayout()
                     },
-                    shape = RoundedCornerShape(50),
+                    shape = buttonShape,
                     border = androidx.compose.foundation.BorderStroke(1.dp, LauncherColors.Green),
                     colors = ButtonDefaults.outlinedButtonColors(
                         contentColor = LauncherColors.Green
@@ -226,7 +236,7 @@ fun AppDetailDialog(
                 // Hide App — removes from launcher; restorable via Settings > Hidden Apps
                 OutlinedButton(
                     onClick = onHideApp,
-                    shape = RoundedCornerShape(50),
+                    shape = buttonShape,
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp, Color(0xFFFF6B35)
                     ),

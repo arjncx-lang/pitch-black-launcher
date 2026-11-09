@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.asStateFlow
 object SettingsPrefs {
     private const val PREFS_NAME = "launcher_settings"
     private const val KEY_SHOW_WORK_APPS = "show_work_apps"
+    private const val KEY_SHARP_EDGES = "sharp_edges"
+    private const val KEY_WHITE_THEME = "white_theme"
+    private const val KEY_CALENDAR_MONTHS = "calendar_months"
     private const val KEY_HIDDEN_APPS = "hidden_apps"
 
     private lateinit var prefs: SharedPreferences
@@ -19,12 +22,25 @@ object SettingsPrefs {
     private val _showWorkAppsFlow = MutableStateFlow(true)
     val showWorkAppsFlow: StateFlow<Boolean> = _showWorkAppsFlow.asStateFlow()
 
+    private val _sharpEdgesFlow = MutableStateFlow(false)
+    val sharpEdgesFlow: StateFlow<Boolean> = _sharpEdgesFlow.asStateFlow()
+
+    private val _whiteThemeFlow = MutableStateFlow(false)
+    val whiteThemeFlow: StateFlow<Boolean> = _whiteThemeFlow.asStateFlow()
+
+    // 0 = off, 1 = current month, 2 = current+next, 3 = current+next+next-next
+    private val _calendarMonthsFlow = MutableStateFlow(0)
+    val calendarMonthsFlow: StateFlow<Int> = _calendarMonthsFlow.asStateFlow()
+
     private val _hiddenAppsFlow = MutableStateFlow<Set<String>>(emptySet())
     val hiddenAppsFlow: StateFlow<Set<String>> = _hiddenAppsFlow.asStateFlow()
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _showWorkAppsFlow.value = prefs.getBoolean(KEY_SHOW_WORK_APPS, true)
+        _sharpEdgesFlow.value = prefs.getBoolean(KEY_SHARP_EDGES, false)
+        _whiteThemeFlow.value = prefs.getBoolean(KEY_WHITE_THEME, false)
+        _calendarMonthsFlow.value = prefs.getInt(KEY_CALENDAR_MONTHS, 0)
         _hiddenAppsFlow.value = prefs.getStringSet(KEY_HIDDEN_APPS, emptySet()) ?: emptySet()
 
         _hudSettingsFlow.value = HudSettings(
@@ -79,6 +95,21 @@ object SettingsPrefs {
     fun setShowWorkApps(show: Boolean) {
         prefs.edit().putBoolean(KEY_SHOW_WORK_APPS, show).apply()
         _showWorkAppsFlow.value = show
+    }
+
+    fun setSharpEdges(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SHARP_EDGES, enabled).apply()
+        _sharpEdgesFlow.value = enabled
+    }
+
+    fun setWhiteTheme(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_WHITE_THEME, enabled).apply()
+        _whiteThemeFlow.value = enabled
+    }
+
+    fun setCalendarMonths(months: Int) {
+        prefs.edit().putInt(KEY_CALENDAR_MONTHS, months).apply()
+        _calendarMonthsFlow.value = months
     }
 
     /** Hide an app from the launcher by its stableKey. Persisted immediately. */
