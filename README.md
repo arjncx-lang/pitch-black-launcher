@@ -14,11 +14,13 @@
 
 ## 🛌 The Origin Story
 
-I didn't build this after months of market research, UI Figma moodboards, or customer interviews. **This entire launcher literally came to me in a dream.** 
+I didn't build this after months of market research, UI Figma moodboards, or customer interviews. **This entire launcher literally came to me in a dream while I was standing at a bus stop.**
 
-I woke up, looked at the bloated launchers on the Play Store stuffed with sponsored news feeds, battery-chugging animations, and widgets that constantly wake up my CPU just to tell me it's cloudy outside, and thought: *"Hell no. I'm building my own."*
+I was completely fed up with the current state of Android launchers. I was tired of overly complex, laggy, battery-draining behemoths — like **Microsoft Launcher** trying to turn my phone into a Windows corporate desk, **Nova Launcher** drowning in 500 nested settings submenus, or OEM **stock launchers** bloated with news feeds nobody asked for, glance cards, and background bloat that sucks your battery dry for zero reason.
 
-This is a personal launcher built strictly for how my brain works. If you like it, cool. If you think it looks like a retro terminal had a baby with an Android status bar, you're entirely right.
+So standing there, I thought: *"Hell no. I'm building my own."*
+
+This is an unapologetically personal launcher built strictly for how my brain works. If you like it, cool. If you think it looks like a retro terminal had a baby with an Android status bar, you're entirely right.
 
 ---
 
