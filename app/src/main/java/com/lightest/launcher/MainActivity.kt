@@ -521,10 +521,10 @@ fun PitchBlackLauncherScreen() {
                                 val color = if (pagerState.currentPage == iteration) LauncherColors.Green else Color.DarkGray
                                 Box(
                                     modifier = Modifier
-                                        .padding(4.dp)
+                                        .padding(horizontal = 5.dp, vertical = 4.dp)
                                         .clip(CircleShape)
                                         .background(color)
-                                        .size(6.dp)
+                                        .size(8.dp)
                                 )
                             }
                         }
@@ -568,7 +568,7 @@ fun AppGrid(
         state = gridState,
         contentPadding = PaddingValues(bottom = 32.dp),
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(
@@ -833,8 +833,8 @@ fun CenteredMinimalHeader(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
-                verticalArrangement = Arrangement.spacedBy(5.dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             if (hud.showDeviceTemp && deviceTemp != null) {
                 HudMetric(
@@ -941,7 +941,7 @@ fun CenteredMinimalHeader(
         val sharpEdgesForCal by SettingsPrefs.sharpEdgesFlow.collectAsState(initial = false)
         val isWhiteThemeForCal by SettingsPrefs.whiteThemeFlow.collectAsState(initial = false)
         if (calendarMonths > 0) {
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             MiniCalendarWidget(
                 monthCount = calendarMonths,
                 sharpEdges = sharpEdgesForCal,
@@ -949,47 +949,47 @@ fun CenteredMinimalHeader(
             )
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             modifier = Modifier.fillMaxWidth()
         ) {
             IconButton(
                 onClick = onToggleSearch,
-                modifier = Modifier.size(40.dp)
+                modifier = Modifier.size(44.dp)
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_search),
                     contentDescription = "Search",
                     tint = if (isSearchOpen) LauncherColors.Green else textPrimary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
 
             IconButton(
                 onClick = onRefreshApps,
                 enabled = !isRefreshingApps,
-                modifier = Modifier.size(40.dp)
+                modifier = Modifier.size(44.dp)
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_refresh),
                     contentDescription = "Refresh apps",
                     tint = if (isRefreshingApps) LauncherColors.Green else textPrimary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
 
             IconButton(
                 onClick = onLockScreen,
-                modifier = Modifier.size(40.dp)
+                modifier = Modifier.size(44.dp)
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_lock),
                     contentDescription = "Lock screen",
                     tint = textPrimary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
 
@@ -1019,7 +1019,7 @@ private fun HudMetric(
     Text(
         text = "$label : $value",
         color = color,
-        fontSize = 10.sp,
+        fontSize = 11.sp,
         fontWeight = if (emphasize) FontWeight.Bold else FontWeight.Normal,
         maxLines = 1
     )
@@ -1029,17 +1029,21 @@ private fun HudMetric(
 @Composable
 fun MiniCalendarWidget(monthCount: Int, sharpEdges: Boolean, isWhiteTheme: Boolean = false) {
     if (monthCount <= 0) return
-    val today = remember { Calendar.getInstance() }
-    val cardRadius = if (sharpEdges) 0.dp else 12.dp
-    val todayPillRadius = if (sharpEdges) 0.dp else 4.dp
+    // Key on current day so the highlight refreshes past midnight
+    val todayCal = Calendar.getInstance()
+    val todayKey = todayCal.get(Calendar.YEAR) * 10000 +
+        todayCal.get(Calendar.MONTH) * 100 +
+        todayCal.get(Calendar.DAY_OF_MONTH)
+    val today = remember(todayKey) { Calendar.getInstance() }
+    val cardRadius = if (sharpEdges) 0.dp else 14.dp
     val dayNames = listOf("S", "M", "T", "W", "T", "F", "S")
     // col 0 = Sun, col 6 = Sat → red
     val weekendCols = setOf(0, 6)
 
     // Tightened, efficient cell sizing so inner empty space is trimmed cleanly
     val (headerSp, dowSp, dateSp, cellHeightDp, colGapDp) = when (monthCount) {
-        1 -> Quintuple(13.sp, 11.sp, 12.sp, 22.dp, 6.dp)
-        2 -> Quintuple(11.sp, 9.sp, 10.sp, 17.dp, 6.dp)
+        1 -> Quintuple(13.sp, 11.sp, 12.sp, 24.dp, 6.dp)
+        2 -> Quintuple(11.sp, 9.sp, 10.sp, 18.dp, 6.dp)
         else -> Quintuple(9.5.sp, 8.sp, 8.5.sp, 15.dp, 4.dp)
     }
 
@@ -1055,11 +1059,11 @@ fun MiniCalendarWidget(monthCount: Int, sharpEdges: Boolean, isWhiteTheme: Boole
         java.text.DateFormatSymbols().months
     }
 
-    val cardBg = if (isWhiteTheme) Color.White else Color(0xFF0C0E0C)
-    val cardBorder = if (isWhiteTheme) Color(0xFFE0E0E0) else Color(0xFF263E26)
-    val dividerColor = if (isWhiteTheme) Color(0xFFEEEEEE) else Color(0xFF1E281E)
+    val cardBg = if (isWhiteTheme) Color.White else Color(0xFF0D0F0D)
+    val cardBorder = if (isWhiteTheme) Color(0xFFDDDDDD) else Color(0xFF2A4A2A)
+    val dividerColor = if (isWhiteTheme) Color(0xFFE0E0E0) else Color(0xFF243424)
     val headerColor = if (isWhiteTheme) Color(0xFF111111) else Color.White
-    val weekdayDefaultColor = if (isWhiteTheme) Color(0xFF757575) else Color(0xFF9E9E9E)
+    val weekdayDefaultColor = if (isWhiteTheme) Color(0xFF757575) else Color(0xFFA0A0A0)
     val dateDefaultColor = if (isWhiteTheme) Color(0xFF212121) else Color.White
 
     Row(
@@ -1073,7 +1077,7 @@ fun MiniCalendarWidget(monthCount: Int, sharpEdges: Boolean, isWhiteTheme: Boole
             )
             .clip(RoundedCornerShape(cardRadius))
             .background(cardBg)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(colGapDp)
     ) {
         months.forEachIndexed { idx, cal ->
@@ -1082,6 +1086,7 @@ fun MiniCalendarWidget(monthCount: Int, sharpEdges: Boolean, isWhiteTheme: Boole
                     modifier = Modifier
                         .width(1.dp)
                         .fillMaxHeight()
+                        .padding(vertical = 4.dp)
                         .background(dividerColor)
                 )
             }
@@ -1104,7 +1109,7 @@ fun MiniCalendarWidget(monthCount: Int, sharpEdges: Boolean, isWhiteTheme: Boole
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 1.dp)
+                    .padding(horizontal = 2.dp)
             ) {
                 // Month + year header
                 Text(
@@ -1114,14 +1119,14 @@ fun MiniCalendarWidget(monthCount: Int, sharpEdges: Boolean, isWhiteTheme: Boole
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 3.dp),
+                        .padding(bottom = 4.dp),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
                 // Day-of-week header
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 2.dp)
+                        .padding(bottom = 3.dp)
                 ) {
                     dayNames.forEachIndexed { col, d ->
                         Text(
@@ -1153,17 +1158,11 @@ fun MiniCalendarWidget(monthCount: Int, sharpEdges: Boolean, isWhiteTheme: Boole
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(cellHeightDp)
-                                        .then(
-                                            if (isToday) Modifier.background(
-                                                color = LauncherColors.Green,
-                                                shape = RoundedCornerShape(todayPillRadius)
-                                            ) else Modifier
-                                        )
                                 ) {
                                     Text(
                                         text = "$day",
                                         color = when {
-                                            isToday -> Color.Black
+                                            isToday -> LauncherColors.Green
                                             isWeekend -> Color(0xFFFF5252)
                                             else -> dateDefaultColor
                                         },
