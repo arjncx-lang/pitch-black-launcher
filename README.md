@@ -1,4 +1,4 @@
-# ⚡ Pitch Black Launcher (a.k.a. Lightest Launcher)
+# Pitch Black Launcher
 
 <p align="center">
   <img src="screenshot.png" width="30%" />
@@ -6,74 +6,74 @@
   <img src="search_screenshot.png" width="30%" />
 </p>
 
-> **⚠️ Fair Warning:** You probably won't like this launcher.  
-> To most normal people, it looks dumb, aggressively barebones, and devoid of joy.  
-> But to me? It’s **dumb and useful as fuck**.
+Fair warning: you probably won't like this. To most people it looks dumb, brutally empty, and basically allergic to fun. But for me, it is dumb and useful as fuck.
 
 ---
 
-## 🛌 The Origin Story
+## Where this came from
 
-I didn't build this after months of market research, UI Figma moodboards, or customer interviews. **This entire launcher literally came to me in a dream while I was standing at a bus stop.**
+I didn't plan this out. It literally came to me in a dream while I was standing at a bus stop waiting for my ride.
 
-I was completely fed up with the current state of Android launchers. I was tired of overly complex, laggy, battery-draining behemoths — like **Microsoft Launcher** trying to turn my phone into a Windows corporate desk, **Nova Launcher** drowning in 500 nested settings submenus, or OEM **stock launchers** bloated with news feeds nobody asked for, glance cards, and background bloat that sucks your battery dry for zero reason.
+I was just standing there thinking about how much modern Android launchers annoy me. Microsoft Launcher feels like it wants to manage my 401k. Nova Launcher has about six hundred nested menus just to change an icon shape. And stock phone launchers are crammed with news cards, weather animations, and random garbage running in the background while chewing through battery.
 
-So standing there, I thought: *"Hell no. I'm building my own."*
-
-This is an unapologetically personal launcher built strictly for how my brain works. If you like it, cool. If you think it looks like a retro terminal had a baby with an Android status bar, you're entirely right.
+So standing at that bus stop, I decided to just build what I actually wanted: pitch black, instant, and dead simple.
 
 ---
 
-## 🧠 Why The Features Are Like This
+## Why put this on GitHub?
 
-Every "weird" feature here has an extremely specific, stubborn reason:
+Two main reasons:
 
-### 1. ⬛ Pitch Black (`#000000`). No Wallpapers. Ever.
-- **Why?** Wallpapers are visual noise that distract you every time you unlock your phone. On OLED screens, `#000000` means physical pixels are completely **turned off**. Your screen is literally sleeping where it's black. 
-- No wallpapers, no blurry live backgrounds, no gradient nonsense. Just darkness and your apps.
-
-### 2. 📊 The Hardware HUD (System Nerd Dashboard)
-Right at the top sits a passive hardware diagnostics HUD:
-- **What it shows:** Live charge/drain current (`mA`), battery %, voltage, battery & device temperature, thermal throttling, free RAM, storage, refresh rate, and volume levels.
-- **Why?** If my phone is charging painfully slow at 150 mA because a cable is bad, or getting cooked at 42°C, I want to know immediately without installing 5 shady "Phone Cleaner Pro 3D" apps.
-- **Why it doesn't kill your battery:** It uses **zero active CPU polling**. It doesn't run a background loop waking up your phone 60 times a minute. It sits quietly and only reacts when Android hardware natively broadcasts an event (like `ACTION_TIME_TICK` or battery broadcast).
-
-### 3. 🗓️ The Mini Calendar (1, 2, or 3 Months Squeezed at the Top)
-- **Why?** Opening a dedicated calendar app just to check *"what day of the week does Dec 14 fall on?"* or *"how many days until next Friday?"* is pure friction.
-- It sits right above your apps. You can glance at next month or even the month after without touching anything.
-- Today’s date is simply highlighted in bold bright green. No fat background pills, no weird wide blocks, no clipping. Just clean, readable numbers.
-
-### 4. 🔒 Lock Screen Button & Quick Refresh
-- **Why is there a lock icon in the middle toolbar?** Because reaching for the physical power button to lock your screen gets annoying, and physical buttons wear out. One tap on the lock icon locks the screen instantly.
-- **The refresh icon?** If you sideload or install an app, tap refresh once. Done.
-
-### 5. 🔲 Sharp Edges Option
-- Hate round bubbly icons? Toggle **Sharp Edges** in settings and watch everything snap into sharp, brutalist cyberpunk squares.
-
-### 6. 🔍 Search & Work Profile
-- Swipe up or tap the search icon: instant instant-filter app search.
-- Got work apps? Swipe horizontally to a clean second page dedicated to your work profile.
+1. Free code storage for me so I don't lose it when my laptop does something stupid.
+2. If you like the idea, steal it. Fork the repo, copy whatever you want, strip out what you hate, and make something neat for yourself. You don't have to ask, just take the code and build something cool.
 
 ---
 
-## 🛠️ What I Actually Did Here (The Technical Summary)
+## Why the features look and work like this
 
-Under the hood, this launcher is stripped down to raw performance:
+Every weird little thing here exists because I got annoyed by the alternative:
 
-- **100% Jetpack Compose**: Built natively on modern Android UI toolkits.
-- **Passive Broadcast Architecture**: Sleeps 59 seconds out of every minute. Zero idle CPU overhead.
-- **R8 Full-Mode Minified**: Aggressive dead-code elimination, inlining, and resource stripping.
-- **Tiny APK Footprint**: Under **2 MB** total download size. Takes up practically no storage.
-- **No Background Services**: When you're in an app or phone is locked, this launcher is dead asleep in RAM.
+### 1. Pitch black background. No wallpapers.
+Wallpapers look cool for two days, then they just become visual noise that hides your app icons. Plus on OLED screens, pure black pixels are literally turned off. No backlight, no battery drain, no distractions.
+
+### 2. The nerd HUD at the top
+Up top there is a small diagnostic line that shows your live charging or drain current (in mA), battery percent, voltage, device temperature, RAM, and volume.
+- Why? If a cheap charging cable is giving me 200 mA instead of fast charging, or if my phone is overheating in my pocket, I want to know right away without opening some ad-riddled cleaner app.
+- How it runs without eating battery: It doesn't poll in an infinite loop. It just sits there asleep and only updates when Android itself fires a system broadcast.
+
+### 3. The mini calendar
+Right above the apps, you can show 1, 2, or 3 months.
+- Why? Because opening a full calendar app just to check what day of the week the 18th lands on is annoying. It is right there.
+- Today is just highlighted in bright green text. No weird bloated pills, no oval blocks, no clipping. Just clean text.
+
+### 4. Lock button and refresh right in the toolbar
+- The lock icon: Reaching up to press the physical power button wears it out over time, and honestly I'm lazy. One tap locks the phone.
+- The refresh button: If you sideload or install an app, tap it once and your app list refreshes immediately.
+
+### 5. Sharp edges toggle
+If you hate rounded circle icons and want everything to look like sharp little squares, there is a toggle in settings for that.
+
+### 6. App search and work profile
+Swipe up to search your apps with instant filtering. If you have work apps on your phone, swipe sideways to a separate work page so work stuff doesn't clutter your home screen.
 
 ---
 
-## 📦 How to Install
+## What is actually going on under the hood
 
-1. Grab the optimized `app-release.apk` from the latest build or **Releases** tab.
-2. Sideload it on your phone:
+To keep it simple:
+
+- Built with modern Jetpack Compose.
+- Zero background polling loops. It sleeps 59 out of 60 seconds.
+- Fully minified with R8 optimization so the whole APK is around 1.7 MB.
+- When you are inside an app or your phone is in your pocket, this launcher does literally nothing.
+
+---
+
+## How to install it
+
+1. Grab `app-release.apk` from the Releases section (or build it yourself with Gradle).
+2. Install it with adb:
    ```bash
    adb install -r app-release.apk
    ```
-3. Set it as your default launcher.
-4. Enjoy pure, silent, pitch-black speed.
+3. Set it as default, and you are good to go.
