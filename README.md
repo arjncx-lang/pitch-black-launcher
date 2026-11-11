@@ -1,4 +1,4 @@
-# ⚡ Lightest Launcher
+# ⚡ Pitch Black Launcher (a.k.a. Lightest Launcher)
 
 <p align="center">
   <img src="screenshot.png" width="30%" />
@@ -6,38 +6,72 @@
   <img src="search_screenshot.png" width="30%" />
 </p>
 
-A radically minimalist, ultra lightweight Android launcher engineered from the ground up to achieve **absolute zero battery drain**.
+> **⚠️ Fair Warning:** You probably won't like this launcher.  
+> To most normal people, it looks dumb, aggressively barebones, and devoid of joy.  
+> But to me? It’s **dumb and useful as fuck**.
 
-## The Engineering Achievement
+---
 
-Most modern launchers are battery hogs in disguise. They run invisible background services, poll your CPU constantly to update widgets, and use heavy loops to track the time and your battery percentage. 
+## 🛌 The Origin Story
 
-We threw all of that out the window and flipped the script on how a launcher is built. 
+I didn't build this after months of market research, UI Figma moodboards, or customer interviews. **This entire launcher literally came to me in a dream.** 
 
-Every single line of code in the **Lightest Launcher** is designed around Android's native passive broadcasting system. 
+I woke up, looked at the bloated launchers on the Play Store stuffed with sponsored news feeds, battery-chugging animations, and widgets that constantly wake up my CPU just to tell me it's cloudy outside, and thought: *"Hell no. I'm building my own."*
 
-*   **Zero Polling Engine**: Instead of waking up your CPU 60 times a minute to check the clock, we hooked directly into Android's native `ACTION_TIME_TICK`. Our launcher does literally zero work for 59 seconds and only wakes up exactly when the OS tells it the minute rolled over.
-*   **Passive Diagnostics**: The battery and temperature HUD never asks the phone for data. It simply sits silently and waits for the battery hardware to broadcast an update.
-*   **Pure OLED Black**: By rendering true black hex pixels across the board, the launcher actually turns off the physical pixels on OLED screens to save raw hardware power.
+This is a personal launcher built strictly for how my brain works. If you like it, cool. If you think it looks like a retro terminal had a baby with an Android status bar, you're entirely right.
 
-## Intentional Trade-offs
+---
 
-To hit absolute maximum performance and maintain a zero battery footprint, we had to make some hardcore design decisions. These aren't missing features. They are intentional exclusions:
+## 🧠 Why The Features Are Like This
 
-*   **No Widgets**: Widgets require continuous background memory allocation and CPU cycles to stay updated. We refuse to run them.
-*   **No Wallpapers**: Rendering high resolution images on the home screen drains your battery and causes permanent OLED burn-in over time. We use a pure black background exclusively.
-*   **No Heavy Animations**: No app drawer opening lag. We launch your apps instantly.
+Every "weird" feature here has an extremely specific, stubborn reason:
 
-## Features At A Glance
+### 1. ⬛ Pitch Black (`#000000`). No Wallpapers. Ever.
+- **Why?** Wallpapers are visual noise that distract you every time you unlock your phone. On OLED screens, `#000000` means physical pixels are completely **turned off**. Your screen is literally sleeping where it's black. 
+- No wallpapers, no blurry live backgrounds, no gradient nonsense. Just darkness and your apps.
 
-*   **Passive Battery & Temperature HUD**: Realtime diagnostics exactly when they happen, zero polling required.
-*   **Smart Temperature Colors**: The HUD temperature seamlessly shifts from Green to Orange to Bold Red so you instantly know when your device is overheating.
-*   **Integrated Volume Tracking**: View your exact ring profile and media volume on the HUD.
-*   **Smart Charging Indicator**: A clean, lightning fast vector icon appears the millisecond you plug in.
-*   **Instant App Search**: Filter through your entire device in milliseconds.
+### 2. 📊 The Hardware HUD (System Nerd Dashboard)
+Right at the top sits a passive hardware diagnostics HUD:
+- **What it shows:** Live charge/drain current (`mA`), battery %, voltage, battery & device temperature, thermal throttling, free RAM, storage, refresh rate, and volume levels.
+- **Why?** If my phone is charging painfully slow at 150 mA because a cable is bad, or getting cooked at 42°C, I want to know immediately without installing 5 shady "Phone Cleaner Pro 3D" apps.
+- **Why it doesn't kill your battery:** It uses **zero active CPU polling**. It doesn't run a background loop waking up your phone 60 times a minute. It sits quietly and only reacts when Android hardware natively broadcasts an event (like `ACTION_TIME_TICK` or battery broadcast).
 
-## Installation
+### 3. 🗓️ The Mini Calendar (1, 2, or 3 Months Squeezed at the Top)
+- **Why?** Opening a dedicated calendar app just to check *"what day of the week does Dec 14 fall on?"* or *"how many days until next Friday?"* is pure friction.
+- It sits right above your apps. You can glance at next month or even the month after without touching anything.
+- Today’s date is simply highlighted in bold bright green. No fat background pills, no weird wide blocks, no clipping. Just clean, readable numbers.
 
-Go to the **Releases** tab and download the highly optimized `app-release.apk`. It is entirely minified and shrank through Google's aggressive R8 optimizer to take up practically zero storage on your phone.
+### 4. 🔒 Lock Screen Button & Quick Refresh
+- **Why is there a lock icon in the middle toolbar?** Because reaching for the physical power button to lock your screen gets annoying, and physical buttons wear out. One tap on the lock icon locks the screen instantly.
+- **The refresh icon?** If you sideload or install an app, tap refresh once. Done.
 
-Enjoy the fastest, most efficient Android experience ever built.
+### 5. 🔲 Sharp Edges Option
+- Hate round bubbly icons? Toggle **Sharp Edges** in settings and watch everything snap into sharp, brutalist cyberpunk squares.
+
+### 6. 🔍 Search & Work Profile
+- Swipe up or tap the search icon: instant instant-filter app search.
+- Got work apps? Swipe horizontally to a clean second page dedicated to your work profile.
+
+---
+
+## 🛠️ What I Actually Did Here (The Technical Summary)
+
+Under the hood, this launcher is stripped down to raw performance:
+
+- **100% Jetpack Compose**: Built natively on modern Android UI toolkits.
+- **Passive Broadcast Architecture**: Sleeps 59 seconds out of every minute. Zero idle CPU overhead.
+- **R8 Full-Mode Minified**: Aggressive dead-code elimination, inlining, and resource stripping.
+- **Tiny APK Footprint**: Under **2 MB** total download size. Takes up practically no storage.
+- **No Background Services**: When you're in an app or phone is locked, this launcher is dead asleep in RAM.
+
+---
+
+## 📦 How to Install
+
+1. Grab the optimized `app-release.apk` from the latest build or **Releases** tab.
+2. Sideload it on your phone:
+   ```bash
+   adb install -r app-release.apk
+   ```
+3. Set it as your default launcher.
+4. Enjoy pure, silent, pitch-black speed.
